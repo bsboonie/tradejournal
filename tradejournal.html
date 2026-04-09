@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <!-- ╔══════════════════════════════════════════════════════════════╗
-     ║  TRADEJOURNAL v1.2 — Integration-Ready Build                 ║
+     ║  TRADEJOURNAL v1.3 — Merge-Ready Build                       ║
      ║  Built: 2026-04-09                                           ║
      ║  Changes:                                                    ║
-     ║    1. Confirmed Tradier production API (api.tradier.com)     ║
-     ║    2. Added window.TJ.getEntries() — returns full array      ║
-     ║    3. Added window.TJ.getEntry(id) — returns single entry    ║
-     ║    4. Added window.TJ.createEntry(obj) — pre-fills Builder   ║
-     ║    5. Standardized trade object schema (contract keys)       ║
-     ║    6. Added Firebase Firestore sync (tradejournal collection) ║
-     ║    7. localStorage kept as fallback if Firebase unavailable  ║
-     ║    8. Added postMessage listener (TJ_CREATE_ENTRY)           ║
+     ║    1. Removed postMessage bridge (onMessage + TJ_READY boot) ║
+     ║    2. Confirmed schema contract keys in saveEntry()          ║
+     ║    3. Confirmed Firebase collection name: tradejournal       ║
+     ║    4. Version stamps updated to v1.3                         ║
+     ║  Carries forward from v1.2:                                  ║
+     ║    - Tradier production API confirmed (api.tradier.com)      ║
+     ║    - window.TJ.getEntries() / getEntry(id) / createEntry()   ║
+     ║    - Firebase Firestore sync + localStorage fallback         ║
      ╚══════════════════════════════════════════════════════════════╝ -->
 <html lang="en">
 <head>
@@ -444,12 +444,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <script>
 // ══════════════════════════════════════════════════════════════════
-//  TRADEJOURNAL v1.2
-//  Namespace  : window.TJ
-//  Storage    : Firebase Firestore (tradejournal/brian2026) + localStorage fallback
-//  LS prefix  : tj_
-//  Contract   : getEntries(), getEntry(id), createEntry(obj)
-//  postMessage: { type:'TJ_CREATE_ENTRY', payload:tradeObj }
+//  TRADEJOURNAL v1.3
+//  Namespace : window.TJ
+//  Storage   : Firebase Firestore (tradejournal/brian2026) + localStorage fallback
+//  LS prefix : tj_
+//  Contract  : getEntries(), getEntry(id), createEntry(obj)
 // ══════════════════════════════════════════════════════════════════
 
 window.TJ = (function(){
@@ -536,7 +535,7 @@ window.TJ = (function(){
     const d = new Date(); d.setDate(d.getDate()+21);
     const expEl = document.getElementById('b-exp');
     if(expEl) expEl.value = d.toISOString().split('T')[0];
-    window.addEventListener('message', onMessage);
+    window.addEventListener('load', function(){});
   }
 
   function tickClock(){
@@ -955,14 +954,6 @@ window.TJ = (function(){
     toast('Builder pre-filled for '+(t||'trade'));
   }
 
-  // ── postMessage BRIDGE ─────────────────────────────────────────
-  // Enables iframe embedding without direct namespace access.
-  // Parent sends:    { type: 'TJ_CREATE_ENTRY', payload: tradeObj }
-  // TJ signals back: { type: 'TJ_READY', version: '1.2' }
-  function onMessage(event){
-    if(!event.data||typeof event.data!=='object') return;
-    if(event.data.type==='TJ_CREATE_ENTRY') createEntry(event.data.payload||{});
-  }
 
   // ── PUBLIC API ─────────────────────────────────────────────────
   return {
@@ -986,12 +977,10 @@ window.TJ = (function(){
 
 // Boot
 window.TJ.init();
-// Signal to any parent frame
-try{ window.parent.postMessage({ type:'TJ_READY', version:'1.2' },'*'); }catch(e){}
 </script>
 
 <!-- ╔══════════════════════════════════════════════════════════════╗
-     ║  END TRADEJOURNAL v1.2 — Integration-Ready Build             ║
+     ║  END TRADEJOURNAL v1.3 — Merge-Ready Build                   ║
      ╚══════════════════════════════════════════════════════════════╝ -->
 </body>
 </html>
