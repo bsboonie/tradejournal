@@ -1,1587 +1,997 @@
-<!-- ============================================================
-     TRADEJOURNAL v1.0 — Foundation Build
-     Date: 2026-04-08
-     Changelog: Initial build. Four-question thesis builder with
-                AI coach, Finnhub news, Tradier ATR, localStorage
-                journal log, two-column layout per question.
-     ============================================================ -->
 <!DOCTYPE html>
+<!-- ╔══════════════════════════════════════════════════════════════╗
+     ║  TRADEJOURNAL v1.2 — Integration-Ready Build                 ║
+     ║  Built: 2026-04-09                                           ║
+     ║  Changes:                                                    ║
+     ║    1. Confirmed Tradier production API (api.tradier.com)     ║
+     ║    2. Added window.TJ.getEntries() — returns full array      ║
+     ║    3. Added window.TJ.getEntry(id) — returns single entry    ║
+     ║    4. Added window.TJ.createEntry(obj) — pre-fills Builder   ║
+     ║    5. Standardized trade object schema (contract keys)       ║
+     ║    6. Added Firebase Firestore sync (tradejournal collection) ║
+     ║    7. localStorage kept as fallback if Firebase unavailable  ║
+     ║    8. Added postMessage listener (TJ_CREATE_ENTRY)           ║
+     ╚══════════════════════════════════════════════════════════════╝ -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TradeJournal">
 <title>TradeJournal</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
-  /* ── TOKENS ───────────────────────────────────────────────── */
-  :root {
-    --bg:         #0a0c0f;
-    --surface:    #111418;
-    --surface2:   #181d22;
-    --border:     #1e2530;
-    --border2:    #2a3340;
-    --text:       #c8d4e0;
-    --text-dim:   #5a6a7a;
-    --text-bright:#eaf2ff;
-    --accent:     #00c896;
-    --accent-dim: #00c89620;
-    --accent2:    #f0a500;
-    --accent2-dim:#f0a50015;
-    --red:        #e05555;
-    --red-dim:    #e0555515;
-    --blue:       #4a9eff;
-    --blue-dim:   #4a9eff15;
-    --mono:       'IBM Plex Mono', monospace;
-    --sans:       'IBM Plex Sans', sans-serif;
-    --radius:     4px;
-    --radius-lg:  8px;
-  }
-
-  /* ── RESET ────────────────────────────────────────────────── */
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 14px;
-    line-height: 1.6;
-    min-height: 100vh;
-  }
-
-  /* ── HEADER ───────────────────────────────────────────────── */
-  header {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 16px 24px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-
-  .header-brand {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-
-  .header-brand h1 {
-    font-family: var(--mono);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--accent);
-    letter-spacing: -0.5px;
-  }
-
-  .header-brand .version {
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--text-dim);
-    letter-spacing: 1px;
-  }
-
-  .header-nav {
-    display: flex;
-    gap: 8px;
-  }
-
-  .nav-btn {
-    background: transparent;
-    border: 1px solid var(--border2);
-    color: var(--text-dim);
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.5px;
-    padding: 6px 14px;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .nav-btn:hover, .nav-btn.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: var(--accent-dim);
-  }
-
-  /* ── MAIN LAYOUT ─────────────────────────────────────────── */
-  main {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 24px 20px 60px;
-  }
-
-  .view { display: none; }
-  .view.active { display: block; }
-
-  /* ── TRADE SETUP PANEL ───────────────────────────────────── */
-  .setup-panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 20px 24px;
-    margin-bottom: 24px;
-  }
-
-  .setup-panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
-  }
-
-  .panel-label {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-  }
-
-  .setup-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 12px;
-  }
-
-  .field-group {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-
-  .field-group label {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 1px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-  }
-
-  .field-group input,
-  .field-group select {
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius);
-    color: var(--text-bright);
-    font-family: var(--mono);
-    font-size: 13px;
-    padding: 8px 10px;
-    outline: none;
-    transition: border-color 0.15s;
-    width: 100%;
-  }
-
-  .field-group input:focus,
-  .field-group select:focus {
-    border-color: var(--accent);
-  }
-
-  .field-group select option {
-    background: var(--surface2);
-  }
-
-  .fetch-bar {
-    display: flex;
-    gap: 10px;
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border);
-    align-items: center;
-  }
-
-  .btn {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.5px;
-    padding: 8px 18px;
-    border-radius: var(--radius);
-    border: none;
-    cursor: pointer;
-    transition: all 0.15s;
-    white-space: nowrap;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: #000;
-    font-weight: 600;
-  }
-
-  .btn-primary:hover { background: #00e0aa; }
-  .btn-primary:disabled { background: var(--border2); color: var(--text-dim); cursor: not-allowed; }
-
-  .btn-secondary {
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    color: var(--text);
-  }
-
-  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
-
-  .btn-danger {
-    background: var(--red-dim);
-    border: 1px solid var(--red);
-    color: var(--red);
-  }
-
-  .btn-danger:hover { background: var(--red); color: #fff; }
-
-  .fetch-status {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-
-  /* ── QUESTION BLOCKS ─────────────────────────────────────── */
-  .question-block {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    margin-bottom: 16px;
-    overflow: hidden;
-  }
-
-  .question-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface2);
-  }
-
-  .q-number {
-    font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--accent);
-    background: var(--accent-dim);
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    padding: 2px 8px;
-    letter-spacing: 1px;
-  }
-
-  .q-title {
-    font-family: var(--sans);
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-bright);
-    flex: 1;
-  }
-
-  .q-score {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-dim);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .score-dots {
-    display: flex;
-    gap: 3px;
-  }
-
-  .score-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--border2);
-    transition: background 0.2s;
-  }
-
-  .score-dot.filled { background: var(--accent); }
-  .score-dot.filled.mid { background: var(--accent2); }
-  .score-dot.filled.low { background: var(--red); }
-
-  .question-body {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0;
-  }
-
-  .q-left {
-    padding: 16px 20px;
-    border-right: 1px solid var(--border);
-  }
-
-  .q-right {
-    padding: 16px 20px;
-    background: var(--surface2);
-  }
-
-  .col-label {
-    font-family: var(--mono);
-    font-size: 9px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 8px;
-  }
-
-  /* News headlines block */
-  .news-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 10px;
-    max-height: 120px;
-    overflow-y: auto;
-  }
-
-  .news-item {
-    font-size: 12px;
-    color: var(--text);
-    line-height: 1.4;
-    padding: 6px 8px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    border-left: 2px solid var(--accent);
-  }
-
-  .news-item a {
-    color: var(--blue);
-    text-decoration: none;
-    font-size: 11px;
-  }
-
-  .news-item a:hover { text-decoration: underline; }
-
-  .news-time {
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--text-dim);
-    display: block;
-    margin-top: 2px;
-  }
-
-  /* ATR display */
-  .atr-display {
-    display: flex;
-    gap: 16px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-  }
-
-  .atr-stat {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 8px 12px;
-  }
-
-  .atr-stat-label {
-    font-family: var(--mono);
-    font-size: 9px;
-    letter-spacing: 1px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-  }
-
-  .atr-stat-value {
-    font-family: var(--mono);
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-bright);
-    margin-top: 2px;
-  }
-
-  .atr-math {
-    background: var(--accent2-dim);
-    border: 1px solid var(--accent2);
-    border-radius: var(--radius);
-    padding: 10px 12px;
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--accent2);
-    margin-bottom: 10px;
-  }
-
-  .atr-math.warning {
-    background: var(--red-dim);
-    border-color: var(--red);
-    color: var(--red);
-  }
-
-  .atr-math.good {
-    background: var(--accent-dim);
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  /* Textareas */
-  textarea {
-    width: 100%;
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 13px;
-    line-height: 1.6;
-    padding: 10px 12px;
-    resize: vertical;
-    outline: none;
-    transition: border-color 0.15s;
-    min-height: 90px;
-  }
-
-  textarea:focus { border-color: var(--accent); }
-  textarea::placeholder { color: var(--text-dim); font-style: italic; }
-
-  .inline-input {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 10px;
-    align-items: center;
-  }
-
-  .inline-input label {
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--text-dim);
-    white-space: nowrap;
-    letter-spacing: 0.5px;
-  }
-
-  .inline-input input {
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius);
-    color: var(--text-bright);
-    font-family: var(--mono);
-    font-size: 13px;
-    padding: 6px 10px;
-    outline: none;
-    transition: border-color 0.15s;
-    width: 120px;
-  }
-
-  .inline-input input:focus { border-color: var(--accent); }
-
-  /* AI response panel */
-  .ai-response {
-    min-height: 90px;
-    font-size: 13px;
-    line-height: 1.7;
-    color: var(--text);
-  }
-
-  .ai-response.empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-dim);
-    font-style: italic;
-    font-size: 12px;
-    border: 1px dashed var(--border2);
-    border-radius: var(--radius);
-    padding: 16px;
-  }
-
-  .ai-response.loading {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--text-dim);
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 16px;
-    border: 1px solid var(--border2);
-    border-radius: var(--radius);
-  }
-
-  .ai-response.loaded {
-    background: var(--surface);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius);
-    padding: 12px 14px;
-  }
-
-  .spinner {
-    width: 14px;
-    height: 14px;
-    border: 2px solid var(--border2);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .ai-score-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 10px;
-    margin-bottom: 8px;
-  }
-
-  .score-5 { background: #00c89620; color: #00c896; border: 1px solid #00c896; }
-  .score-4 { background: #00c89615; color: #00c896; border: 1px solid #00c89660; }
-  .score-3 { background: #f0a50020; color: #f0a500; border: 1px solid #f0a500; }
-  .score-2 { background: #e0555520; color: #e05555; border: 1px solid #e0555560; }
-  .score-1 { background: #e0555530; color: #e05555; border: 1px solid #e05555; }
-
-  .coach-btn {
-    margin-top: 10px;
-  }
-
-  /* ── ACTIONS BAR ─────────────────────────────────────────── */
-  .actions-bar {
-    display: flex;
-    gap: 10px;
-    padding: 20px 0 0;
-    border-top: 1px solid var(--border);
-    margin-top: 24px;
-    justify-content: flex-end;
-    align-items: center;
-  }
-
-  .save-status {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-dim);
-    margin-right: auto;
-  }
-
-  .save-status.saved { color: var(--accent); }
-
-  /* ── JOURNAL VIEW ─────────────────────────────────────────── */
-  .journal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-  }
-
-  .journal-title {
-    font-family: var(--mono);
-    font-size: 16px;
-    color: var(--text-bright);
-    font-weight: 600;
-  }
-
-  .journal-count {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-
-  .journal-empty {
-    text-align: center;
-    padding: 60px 20px;
-    color: var(--text-dim);
-    font-size: 13px;
-  }
-
-  .journal-empty .empty-icon {
-    font-size: 32px;
-    margin-bottom: 12px;
-    opacity: 0.4;
-  }
-
-  .journal-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  .journal-table th {
-    font-family: var(--mono);
-    font-size: 9px;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    text-align: left;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface2);
-  }
-
-  .journal-table td {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
-    vertical-align: top;
-    font-size: 13px;
-  }
-
-  .journal-table tr:hover td { background: var(--surface2); }
-
-  .ticker-cell {
-    font-family: var(--mono);
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-bright);
-  }
-
-  .contract-cell {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-
-  .status-badge {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 10px;
-    letter-spacing: 0.5px;
-  }
-
-  .status-open { background: var(--blue-dim); color: var(--blue); border: 1px solid var(--blue); }
-  .status-closed { background: var(--border); color: var(--text-dim); border: 1px solid var(--border2); }
-  .status-expired { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
-
-  .pnl-cell {
-    font-family: var(--mono);
-    font-size: 13px;
-    font-weight: 600;
-  }
-
-  .pnl-pos { color: var(--accent); }
-  .pnl-neg { color: var(--red); }
-  .pnl-neutral { color: var(--text-dim); }
-
-  .avg-score-cell {
-    font-family: var(--mono);
-    font-size: 12px;
-  }
-
-  .row-actions {
-    display: flex;
-    gap: 6px;
-  }
-
-  .icon-btn {
-    background: transparent;
-    border: 1px solid var(--border2);
-    color: var(--text-dim);
-    font-size: 11px;
-    padding: 4px 8px;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: all 0.15s;
-    font-family: var(--mono);
-  }
-
-  .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .icon-btn.del:hover { border-color: var(--red); color: var(--red); }
-
-  /* Status update inline */
-  .status-select {
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 4px 6px;
-    border-radius: var(--radius);
-    outline: none;
-    cursor: pointer;
-  }
-
-  .pnl-input {
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    color: var(--text-bright);
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 4px 8px;
-    border-radius: var(--radius);
-    outline: none;
-    width: 90px;
-  }
-
-  /* ── EXPAND ROW ───────────────────────────────────────────── */
-  .expand-row td {
-    background: var(--surface2);
-    padding: 16px 20px;
-  }
-
-  .thesis-preview {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-  }
-
-  .thesis-q {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px;
-  }
-
-  .thesis-q-label {
-    font-family: var(--mono);
-    font-size: 9px;
-    letter-spacing: 1.5px;
-    color: var(--accent);
-    text-transform: uppercase;
-    margin-bottom: 6px;
-  }
-
-  .thesis-q-text {
-    font-size: 12px;
-    color: var(--text);
-    line-height: 1.5;
-  }
-
-  /* ── MISC ─────────────────────────────────────────────────── */
-  .divider {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: 24px 0;
-  }
-
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: var(--surface); }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
-
-  /* Responsive */
-  @media (max-width: 768px) {
-    .question-body { grid-template-columns: 1fr; }
-    .q-left { border-right: none; border-bottom: 1px solid var(--border); }
-    .setup-grid { grid-template-columns: repeat(2, 1fr); }
-    .thesis-preview { grid-template-columns: 1fr; }
-    .journal-table { font-size: 12px; }
-  }
+/* ── CSS TOKENS (TradeBrief-compatible) ─────────────────────────── */
+:root{
+  --bg:#0a0e1a;--surface:#111827;--surface2:#1a2235;--border:#1e2d45;
+  --accent:#00d4ff;--accent2:#00ff9d;--danger:#ff4757;--warning:#ffa502;
+  --text:#e8edf5;--muted:#6b7a99;--good:#00ff9d;
+}
+body.light{
+  --bg:#f0f4f8;--surface:#ffffff;--surface2:#e8edf5;--border:#d1dae8;
+  --text:#1a2235;--muted:#6b7a99;--good:#00a86b;--accent:#0099cc;--accent2:#00a86b;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;}
+
+/* ── TOP BAR ────────────────────────────────────────────────────── */
+.top-bar{position:sticky;top:0;z-index:200;background:var(--surface);border-bottom:1px solid var(--border);}
+.header{padding:10px 16px;display:flex;align-items:center;justify-content:space-between;}
+.logo{font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent);}
+.logo span{color:var(--accent2);}
+.hright{display:flex;align-items:center;gap:10px;}
+.clock{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);}
+.theme-btn{background:none;border:1px solid var(--border);border-radius:6px;padding:4px 9px;font-size:10px;font-family:'Space Mono',monospace;color:var(--muted);cursor:pointer;transition:all 0.2s;}
+.theme-btn:hover{border-color:var(--accent);color:var(--accent);}
+.sync-btn{background:none;border:1px solid var(--border);border-radius:6px;padding:4px 9px;font-size:10px;font-family:'Space Mono',monospace;color:var(--muted);cursor:pointer;transition:all 0.2s;}
+.sync-btn:hover{border-color:var(--accent2);color:var(--accent2);}
+.sync-btn.synced{color:var(--good);border-color:rgba(0,255,157,0.4);}
+.sync-btn.syncing{color:var(--warning);border-color:rgba(255,165,2,0.4);}
+.sync-btn.error{color:var(--danger);border-color:rgba(255,71,87,0.4);}
+
+/* ── LAYOUT ─────────────────────────────────────────────────────── */
+.main{padding:14px 16px;max-width:980px;margin:0 auto;}
+
+/* ── TABS ───────────────────────────────────────────────────────── */
+.tabs{display:flex;gap:2px;background:var(--surface);padding:3px;border-radius:10px;border:1px solid var(--border);overflow-x:hidden;}
+.tab{flex:1;min-width:0;padding:7px 3px;text-align:center;border-radius:7px;font-size:10px;cursor:pointer;color:var(--muted);font-family:'Space Mono',monospace;transition:all 0.2s;white-space:nowrap;overflow:hidden;}
+.tab.active{background:var(--surface2);color:var(--accent);border:1px solid var(--border);}
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+
+/* ── BUTTONS ────────────────────────────────────────────────────── */
+.sel-btn{background:var(--accent2);border:none;border-radius:7px;padding:6px 14px;font-size:11px;font-family:'Space Mono',monospace;color:#000;cursor:pointer;font-weight:700;transition:opacity 0.2s;}
+.sel-btn:hover{opacity:0.8;}
+.sel-btn:disabled{opacity:0.4;cursor:not-allowed;}
+.get-btn{background:none;border:1px solid var(--accent);border-radius:7px;padding:6px 12px;font-size:11px;font-family:'Space Mono',monospace;color:var(--accent);cursor:pointer;transition:all 0.2s;}
+.get-btn:hover{background:var(--accent);color:#000;}
+.get-btn:disabled{opacity:0.4;cursor:not-allowed;}
+.danger-btn{background:none;border:1px solid var(--danger);border-radius:7px;padding:5px 10px;font-size:10px;font-family:'Space Mono',monospace;color:var(--danger);cursor:pointer;transition:all 0.2s;}
+.danger-btn:hover{background:var(--danger);color:#fff;}
+
+/* ── TICKER ROW ─────────────────────────────────────────────────── */
+.ticker-row{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
+.ff{display:flex;flex-direction:column;gap:3px;}
+.fl{font-size:9px;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;font-family:'Space Mono',monospace;}
+.fi,.fsel{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 9px;color:var(--text);font-family:'Space Mono',monospace;font-size:11px;outline:none;transition:border-color 0.2s;width:100%;}
+.fi:focus,.fsel:focus{border-color:var(--accent);}
+.ff.sm{min-width:80px;}
+.ff.wide{min-width:130px;}
+.ff.ticker-field{min-width:90px;}
+
+/* ── QUESTION CARDS ─────────────────────────────────────────────── */
+.q-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden;position:relative;transition:border-color 0.2s;}
+.q-card:hover{border-color:rgba(0,212,255,0.25);}
+.acc{position:absolute;left:0;top:0;bottom:0;width:4px;}
+.acc.q1{background:var(--accent);}
+.acc.q2{background:var(--accent2);}
+.acc.q3{background:var(--warning);}
+.acc.q4{background:var(--danger);}
+.q-header{display:flex;align-items:center;justify-content:space-between;padding:11px 14px 11px 18px;border-bottom:1px solid var(--border);}
+.q-title{display:flex;align-items:center;gap:10px;}
+.q-num{font-family:'Space Mono',monospace;font-size:9px;font-weight:700;letter-spacing:2px;color:var(--muted);text-transform:uppercase;}
+.q-label{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--text);}
+.q-score{display:flex;align-items:center;gap:6px;}
+.score-badge{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;}
+.score-badge.s5{background:rgba(0,255,157,0.2);color:var(--good);border:1px solid rgba(0,255,157,0.4);}
+.score-badge.s4{background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3);}
+.score-badge.s3{background:rgba(255,165,2,0.15);color:var(--warning);border:1px solid rgba(255,165,2,0.3);}
+.score-badge.s2{background:rgba(255,71,87,0.15);color:var(--danger);border:1px solid rgba(255,71,87,0.3);}
+.score-badge.s1{background:rgba(255,71,87,0.2);color:var(--danger);border:1px solid rgba(255,71,87,0.5);}
+.score-badge.blank{background:rgba(107,122,153,0.1);color:var(--muted);border:1px solid rgba(107,122,153,0.2);}
+.q-body{display:grid;grid-template-columns:1fr 1fr;gap:0;}
+@media(max-width:640px){.q-body{grid-template-columns:1fr;}}
+.q-left{padding:12px 14px 12px 18px;border-right:1px solid var(--border);}
+@media(max-width:640px){.q-left{border-right:none;border-bottom:1px solid var(--border);}}
+.q-right{padding:12px 14px;background:rgba(0,212,255,0.02);}
+.q-col-label{font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;}
+.q-textarea{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;line-height:1.5;resize:vertical;min-height:72px;outline:none;transition:border-color 0.2s;}
+.q-textarea:focus{border-color:var(--accent);}
+
+/* Auto tiles */
+.auto-tiles{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+.atile{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;display:flex;flex-direction:column;gap:1px;min-width:60px;}
+.atile-label{font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;}
+.atile-val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);}
+
+/* News */
+.news-list{display:flex;flex-direction:column;gap:5px;margin-bottom:8px;}
+.news-item{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 9px;font-size:11px;color:var(--text);line-height:1.4;cursor:pointer;transition:border-color 0.2s;}
+.news-item:hover{border-color:var(--accent);}
+.news-item .news-src{font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);margin-top:2px;}
+
+/* AI Coach */
+.coach-panel{min-height:72px;font-size:12px;line-height:1.6;color:var(--text);}
+.coach-loading{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px;font-family:'Space Mono',monospace;}
+.coach-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:blink 1.2s infinite;}
+.coach-dot:nth-child(2){animation-delay:0.2s;}
+.coach-dot:nth-child(3){animation-delay:0.4s;}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.3;transform:scale(0.7)}}
+.coach-empty{color:var(--muted);font-size:11px;font-style:italic;}
+.coach-text{font-size:12px;color:var(--text);line-height:1.6;}
+.coach-text .challenge{color:var(--warning);font-weight:600;}
+.coach-text .valid{color:var(--good);font-weight:600;}
+
+/* ATR Math */
+.atr-math{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;font-family:'Space Mono',monospace;}
+.atr-math-row{display:flex;justify-content:space-between;align-items:center;font-size:10px;margin-bottom:3px;}
+.atr-math-row:last-child{margin-bottom:0;padding-top:5px;border-top:1px solid var(--border);font-size:12px;}
+.atr-math-label{color:var(--muted);}
+.atr-math-val{color:var(--accent);font-weight:700;}
+.atr-math-val.ok{color:var(--good);}
+.atr-math-val.warn{color:var(--warning);}
+.atr-math-val.bad{color:var(--danger);}
+.q2-inputs{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+.q2-inputs .ff{flex:1;min-width:90px;}
+
+/* Thesis bar */
+.thesis-bar{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.thesis-score-row{display:flex;align-items:center;gap:8px;}
+.thesis-total{font-family:'Space Mono',monospace;font-size:22px;font-weight:700;color:var(--accent);}
+.thesis-label{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;}
+.thesis-pips{display:flex;gap:4px;}
+.thesis-pip{width:28px;height:6px;border-radius:3px;background:var(--border);transition:background 0.3s;}
+.thesis-pip.filled.q1{background:var(--accent);}
+.thesis-pip.filled.q2{background:var(--accent2);}
+.thesis-pip.filled.q3{background:var(--warning);}
+.thesis-pip.filled.q4{background:var(--danger);}
+.thesis-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+
+/* Journal */
+.journal-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:9px;overflow:hidden;}
+.journal-card.open{border-left:4px solid var(--accent);}
+.journal-card.closed.win{border-left:4px solid var(--good);}
+.journal-card.closed.loss{border-left:4px solid var(--danger);}
+.journal-card.expired{border-left:4px solid var(--muted);}
+.jcard-top{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;cursor:pointer;}
+.jcard-left{display:flex;align-items:center;gap:10px;}
+.j-ticker{font-family:'Space Mono',monospace;font-size:16px;font-weight:700;}
+.j-type{font-family:'Space Mono',monospace;font-size:9px;padding:3px 8px;border-radius:4px;font-weight:700;}
+.j-type.call{background:rgba(0,255,157,0.15);color:var(--good);}
+.j-type.put{background:rgba(255,71,87,0.15);color:var(--danger);}
+.j-meta{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);}
+.jcard-right{display:flex;align-items:center;gap:8px;}
+.j-status{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;}
+.j-status.open{background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3);}
+.j-status.closed-win{background:rgba(0,255,157,0.15);color:var(--good);border:1px solid rgba(0,255,157,0.3);}
+.j-status.closed-loss{background:rgba(255,71,87,0.15);color:var(--danger);border:1px solid rgba(255,71,87,0.3);}
+.j-status.expired{background:rgba(107,122,153,0.15);color:var(--muted);border:1px solid rgba(107,122,153,0.3);}
+.j-pl{font-family:'Space Mono',monospace;font-size:14px;font-weight:700;}
+.j-pl.pos{color:var(--good);}
+.j-pl.neg{color:var(--danger);}
+.jcard-detail{border-top:1px solid var(--border);padding:12px 14px;display:none;}
+.jcard-detail.open{display:block;}
+.j-scores-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.j-q-mini{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);}
+.j-q-mini span{color:var(--accent);font-weight:700;}
+.jcard-actions{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+
+/* Stats */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;}
+@media(max-width:580px){.stats-row{grid-template-columns:repeat(2,1fr);}}
+.stat-tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;}
+.stat-label{font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:3px;}
+.stat-val{font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:var(--accent);}
+.stat-val.pos{color:var(--good);}
+.stat-val.neg{color:var(--danger);}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:380px;}
+.modal h3{font-family:'Space Mono',monospace;font-size:13px;color:var(--accent);margin-bottom:16px;}
+.modal-field{margin-bottom:12px;}
+.modal-label{font-size:10px;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;font-family:'Space Mono',monospace;}
+.modal-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-family:'Space Mono',monospace;font-size:13px;outline:none;transition:border-color 0.2s;}
+.modal-input:focus{border-color:var(--accent);}
+.outcome-row{display:flex;gap:8px;margin-bottom:16px;}
+.outcome-btn{flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--muted);font-family:'Space Mono',monospace;font-size:11px;cursor:pointer;transition:all 0.2s;}
+.outcome-btn.selected.win{background:rgba(0,255,157,0.15);border-color:var(--good);color:var(--good);}
+.outcome-btn.selected.loss{background:rgba(255,71,87,0.15);border-color:var(--danger);color:var(--danger);}
+.outcome-btn.selected.expired{background:rgba(107,122,153,0.15);border-color:var(--muted);color:var(--text);}
+.modal-actions{display:flex;gap:8px;}
+.modal-confirm{flex:1;background:var(--accent2);border:none;border-radius:8px;padding:10px;color:#000;font-weight:700;cursor:pointer;font-family:'Space Mono',monospace;font-size:12px;}
+.modal-cancel{flex:1;background:none;border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--muted);cursor:pointer;font-family:'Space Mono',monospace;font-size:12px;}
+
+/* Misc */
+.empty{text-align:center;padding:32px;color:var(--muted);font-size:12px;font-family:'Space Mono',monospace;}
+.alert{background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:11px;color:var(--text);}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(8px);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-family:'Space Mono',monospace;font-size:11px;color:var(--text);z-index:999;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
 </head>
 <body>
 
-<!-- HEADER -->
-<header>
-  <div class="header-brand">
-    <h1>TradeJournal</h1>
-    <span class="version">v1.0</span>
+<!-- ── TOP BAR ─────────────────────────────────────────────────── -->
+<div class="top-bar">
+  <div class="header">
+    <div class="logo">Trade<span>Journal</span></div>
+    <div class="hright">
+      <span class="clock" id="clock">--:-- --</span>
+      <button class="sync-btn" id="sync-btn" onclick="window.TJ.syncNow()">&#8645; SYNC</button>
+      <button class="theme-btn" onclick="window.TJ.toggleTheme()">&#9728; / &#9790;</button>
+    </div>
   </div>
-  <nav class="header-nav">
-    <button class="nav-btn active" onclick="showView('builder')" id="nav-builder">Builder</button>
-    <button class="nav-btn" onclick="showView('journal')" id="nav-journal">Journal</button>
-  </nav>
-</header>
+  <div style="padding:0 16px;background:var(--surface2);border-bottom:1px solid var(--border);">
+    <div class="tabs" style="border:none;background:transparent;padding:6px 0;">
+      <div class="tab active" onclick="window.TJ.go('builder')" id="tab-builder">BUILDER</div>
+      <div class="tab" onclick="window.TJ.go('journal')" id="tab-journal">JOURNAL</div>
+    </div>
+  </div>
+</div>
 
-<main>
+<div class="toast" id="toast"></div>
 
-  <!-- ═══════════════════════════════════════════════════════
-       BUILDER VIEW
-  ═══════════════════════════════════════════════════════ -->
-  <div class="view active" id="view-builder">
-
-    <!-- Trade Setup -->
-    <div class="setup-panel">
-      <div class="setup-panel-header">
-        <span class="panel-label">Trade Setup</span>
-        <button class="btn btn-secondary" onclick="clearBuilder()" style="font-size:10px;padding:5px 12px;">Clear</button>
+<!-- ── CLOSE MODAL ─────────────────────────────────────────────── -->
+<div class="modal-overlay" id="close-modal" style="display:none;" onclick="if(event.target===this)window.TJ.closeModal()">
+  <div class="modal">
+    <h3>CLOSE TRADE</h3>
+    <div class="modal-field">
+      <div class="modal-label">Outcome</div>
+      <div class="outcome-row">
+        <button class="outcome-btn" id="ob-win"     onclick="window.TJ.selectOutcome('win')">WIN</button>
+        <button class="outcome-btn" id="ob-loss"    onclick="window.TJ.selectOutcome('loss')">LOSS</button>
+        <button class="outcome-btn" id="ob-expired" onclick="window.TJ.selectOutcome('expired')">EXPIRED</button>
       </div>
-      <div class="setup-grid">
-        <div class="field-group">
-          <label>Ticker</label>
-          <input type="text" id="ticker" placeholder="AAPL" maxlength="8"
-                 oninput="this.value = this.value.toUpperCase()" onchange="onTickerChange()">
-        </div>
-        <div class="field-group">
-          <label>Date</label>
-          <input type="date" id="trade-date">
-        </div>
-        <div class="field-group">
-          <label>Entry Price ($)</label>
-          <input type="number" id="entry-price" placeholder="0.00" step="0.01" min="0">
-        </div>
-        <div class="field-group">
-          <label>Strike ($)</label>
-          <input type="number" id="strike" placeholder="0.00" step="0.50" min="0">
-        </div>
-        <div class="field-group">
-          <label>Contract</label>
-          <select id="contract-type">
-            <option value="CALL">CALL</option>
-            <option value="PUT">PUT</option>
-          </select>
-        </div>
-        <div class="field-group">
-          <label>Expiration</label>
-          <input type="date" id="expiration">
-        </div>
+    </div>
+    <div class="modal-field">
+      <div class="modal-label">P&amp;L ($)</div>
+      <input class="modal-input" id="modal-pl" type="number" placeholder="e.g. 85 or -120" />
+    </div>
+    <div class="modal-field">
+      <div class="modal-label">Notes (optional)</div>
+      <input class="modal-input" id="modal-notes" type="text" placeholder="What happened?" />
+    </div>
+    <div class="modal-actions">
+      <button class="modal-confirm" onclick="window.TJ.confirmClose()">CONFIRM</button>
+      <button class="modal-cancel"  onclick="window.TJ.closeModal()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MAIN ────────────────────────────────────────────────────── -->
+<div class="main">
+
+  <!-- BUILDER TAB -->
+  <div class="tab-content active" id="tab-content-builder">
+
+    <div class="ticker-row">
+      <div class="ff ticker-field">
+        <div class="fl">Ticker</div>
+        <input class="fi" id="b-ticker" type="text" placeholder="AAPL" style="text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()" />
       </div>
-      <div class="fetch-bar">
-        <button class="btn btn-primary" onclick="fetchAll()" id="fetch-btn">Fetch Data</button>
-        <span class="fetch-status" id="fetch-status">Enter a ticker and click Fetch Data</span>
+      <div class="ff sm">
+        <div class="fl">Type</div>
+        <select class="fsel" id="b-type">
+          <option value="call">CALL</option>
+          <option value="put">PUT</option>
+        </select>
+      </div>
+      <div class="ff sm">
+        <div class="fl">Strike</div>
+        <input class="fi" id="b-strike" type="number" placeholder="200" />
+      </div>
+      <div class="ff wide">
+        <div class="fl">Expiration</div>
+        <input class="fi" id="b-exp" type="date" onchange="window.TJ.updateDTE()" />
+      </div>
+      <div class="ff sm">
+        <div class="fl">Entry $</div>
+        <input class="fi" id="b-entry" type="number" placeholder="1.45" step="0.01" />
+      </div>
+      <div style="display:flex;gap:8px;align-items:flex-end;">
+        <button class="sel-btn" onclick="window.TJ.loadTicker()">LOAD</button>
       </div>
     </div>
 
-    <!-- Q1: Why is this moving? -->
-    <div class="question-block" id="q1-block">
-      <div class="question-header">
-        <span class="q-number">Q1</span>
-        <span class="q-title">Why is this moving? <span style="color:var(--text-dim);font-weight:300;font-size:12px;">— Name a specific catalyst. Not a vibe.</span></span>
-        <div class="q-score" id="q1-score-display" style="display:none;">
-          <div class="score-dots" id="q1-dots"></div>
+    <div class="thesis-bar">
+      <div class="thesis-score-row">
+        <div>
+          <div class="thesis-label">THESIS SCORE</div>
+          <div class="thesis-total" id="thesis-total">&#8212;</div>
+        </div>
+        <div class="thesis-pips">
+          <div class="thesis-pip" id="pip-q1"></div>
+          <div class="thesis-pip" id="pip-q2"></div>
+          <div class="thesis-pip" id="pip-q3"></div>
+          <div class="thesis-pip" id="pip-q4"></div>
         </div>
       </div>
-      <div class="question-body">
+      <div class="thesis-actions">
+        <button class="get-btn" onclick="window.TJ.analyzeAll()">ANALYZE ALL</button>
+        <button class="sel-btn" onclick="window.TJ.saveEntry()">SAVE TRADE</button>
+      </div>
+    </div>
+
+    <!-- Q1 -->
+    <div class="q-card">
+      <div class="acc q1"></div>
+      <div class="q-header">
+        <div class="q-title"><span class="q-num">Q1</span><span class="q-label">Why is this moving?</span></div>
+        <div class="q-score">
+          <span class="score-badge blank" id="score-q1">&#8212;/5</span>
+          <button class="get-btn" onclick="window.TJ.fetchNews()" id="news-btn">FETCH NEWS</button>
+        </div>
+      </div>
+      <div class="q-body">
         <div class="q-left">
-          <div class="col-label">Your Answer</div>
-          <div class="news-list" id="q1-news">
-            <div style="color:var(--text-dim);font-size:12px;font-style:italic;">Headlines will appear after Fetch Data ↑</div>
-          </div>
-          <textarea id="q1-answer" placeholder="What specifically is driving this move? Name the catalyst and your source (earnings beat, FDA catalyst, macro event, etc.). Copy a headline or paste evidence here." rows="3"></textarea>
-          <button class="btn btn-secondary coach-btn" onclick="getCoachResponse(1)" id="q1-coach-btn">Ask Coach →</button>
+          <div class="q-col-label">Your Answer</div>
+          <div class="news-list" id="news-list" style="display:none;"></div>
+          <textarea class="q-textarea" id="q1-answer" placeholder="Name a specific catalyst &#8212; earnings beat, FDA approval, macro event, analyst upgrade. Not 'looks bullish'. Paste supporting evidence below." rows="4"></textarea>
         </div>
         <div class="q-right">
-          <div class="col-label">AI Coach</div>
-          <div class="ai-response empty" id="q1-ai">Answer Q1, then ask the coach.</div>
+          <div class="q-col-label">AI Coach</div>
+          <div class="coach-panel" id="coach-q1"><div class="coach-empty">Enter your answer and click Analyze, or use Analyze All.</div></div>
+          <button class="get-btn" onclick="window.TJ.analyzeQ(1)" style="margin-top:8px;">ANALYZE</button>
         </div>
       </div>
     </div>
 
-    <!-- Q2: What has to be true? -->
-    <div class="question-block" id="q2-block">
-      <div class="question-header">
-        <span class="q-number">Q2</span>
-        <span class="q-title">What has to be true for this to work? <span style="color:var(--text-dim);font-weight:300;font-size:12px;">— ATR math.</span></span>
-        <div class="q-score" id="q2-score-display" style="display:none;">
-          <div class="score-dots" id="q2-dots"></div>
+    <!-- Q2 -->
+    <div class="q-card">
+      <div class="acc q2"></div>
+      <div class="q-header">
+        <div class="q-title"><span class="q-num">Q2</span><span class="q-label">What has to be true for this to work?</span></div>
+        <div class="q-score">
+          <span class="score-badge blank" id="score-q2">&#8212;/5</span>
+          <button class="get-btn" onclick="window.TJ.fetchATR()" id="atr-btn">GET ATR</button>
         </div>
       </div>
-      <div class="question-body">
+      <div class="q-body">
         <div class="q-left">
-          <div class="col-label">Your Answer</div>
-          <div class="atr-display" id="q2-atr-display">
-            <div style="color:var(--text-dim);font-size:12px;font-style:italic;">ATR will calculate after Fetch Data ↑</div>
+          <div class="q-col-label">ATR Math</div>
+          <div id="atr-tiles" style="display:none;">
+            <div class="auto-tiles" id="atr-data-tiles"></div>
+            <div class="atr-math" id="atr-math-box"></div>
           </div>
-          <div class="atr-math" id="q2-math" style="display:none;"></div>
-          <div class="inline-input">
-            <label>Breakeven ($)</label>
-            <input type="number" id="breakeven" placeholder="0.00" step="0.01" min="0" oninput="calcATRMath()">
+          <div class="q2-inputs">
+            <div class="ff" style="min-width:110px;"><div class="fl">Breakeven Price</div><input class="fi" id="q2-breakeven" type="number" placeholder="213.50" step="0.01" oninput="window.TJ.recalcATR()" /></div>
+            <div class="ff" style="min-width:90px;"><div class="fl">DTE</div><input class="fi" id="q2-dte" type="number" placeholder="21" readonly style="color:var(--muted);" /></div>
           </div>
-          <textarea id="q2-answer" placeholder="Does the ATR math work? Entry price × 1.5 = rough breakeven for a long option. Breakeven ÷ ATR = days of avg movement needed. Is that realistic given your DTE?" rows="3"></textarea>
-          <button class="btn btn-secondary coach-btn" onclick="getCoachResponse(2)" id="q2-coach-btn">Ask Coach →</button>
+          <textarea class="q-textarea" id="q2-answer" placeholder="Show your math: (Breakeven - Current Price) / ATR = days needed. Does that fit within your DTE?" rows="3"></textarea>
         </div>
         <div class="q-right">
-          <div class="col-label">AI Coach</div>
-          <div class="ai-response empty" id="q2-ai">Complete Q2 math, then ask the coach.</div>
+          <div class="q-col-label">AI Coach</div>
+          <div class="coach-panel" id="coach-q2"><div class="coach-empty">Get ATR, fill in breakeven, then analyze.</div></div>
+          <button class="get-btn" onclick="window.TJ.analyzeQ(2)" style="margin-top:8px;">ANALYZE</button>
         </div>
       </div>
     </div>
 
-    <!-- Q3: Early or chasing? -->
-    <div class="question-block" id="q3-block">
-      <div class="question-header">
-        <span class="q-number">Q3</span>
-        <span class="q-title">Am I early or am I chasing? <span style="color:var(--text-dim);font-weight:300;font-size:12px;">— Position in the move.</span></span>
-        <div class="q-score" id="q3-score-display" style="display:none;">
-          <div class="score-dots" id="q3-dots"></div>
-        </div>
+    <!-- Q3 -->
+    <div class="q-card">
+      <div class="acc q3"></div>
+      <div class="q-header">
+        <div class="q-title"><span class="q-num">Q3</span><span class="q-label">Am I early or am I chasing?</span></div>
+        <div class="q-score"><span class="score-badge blank" id="score-q3">&#8212;/5</span></div>
       </div>
-      <div class="question-body">
+      <div class="q-body">
         <div class="q-left">
-          <div class="col-label">Your Answer</div>
-          <textarea id="q3-answer" placeholder="Where are you in the move? What % has already happened from the trigger point? Was this a gap at open, or has it been running for 3 days? What does the chart say about where you're entering?" rows="5"></textarea>
-          <button class="btn btn-secondary coach-btn" onclick="getCoachResponse(3)" id="q3-coach-btn">Ask Coach →</button>
+          <div class="q-col-label">Your Answer</div>
+          <textarea class="q-textarea" id="q3-answer" placeholder="Where are you in the move? What % has already happened? Is this a first leg, continuation, or extended run? Reference a level or chart structure." rows="4"></textarea>
         </div>
         <div class="q-right">
-          <div class="col-label">AI Coach</div>
-          <div class="ai-response empty" id="q3-ai">Describe your entry timing, then ask the coach.</div>
+          <div class="q-col-label">AI Coach</div>
+          <div class="coach-panel" id="coach-q3"><div class="coach-empty">Enter your answer and click Analyze.</div></div>
+          <button class="get-btn" onclick="window.TJ.analyzeQ(3)" style="margin-top:8px;">ANALYZE</button>
         </div>
       </div>
     </div>
 
-    <!-- Q4: What proves me wrong? -->
-    <div class="question-block" id="q4-block">
-      <div class="question-header">
-        <span class="q-number">Q4</span>
-        <span class="q-title">What would prove me wrong, and what's my exit? <span style="color:var(--text-dim);font-weight:300;font-size:12px;">— One price. Before entry.</span></span>
-        <div class="q-score" id="q4-score-display" style="display:none;">
-          <div class="score-dots" id="q4-dots"></div>
-        </div>
+    <!-- Q4 -->
+    <div class="q-card">
+      <div class="acc q4"></div>
+      <div class="q-header">
+        <div class="q-title"><span class="q-num">Q4</span><span class="q-label">What would prove me wrong, and what's my exit?</span></div>
+        <div class="q-score"><span class="score-badge blank" id="score-q4">&#8212;/5</span></div>
       </div>
-      <div class="question-body">
+      <div class="q-body">
         <div class="q-left">
-          <div class="col-label">Your Answer</div>
-          <div class="inline-input">
-            <label>Exit Level ($)</label>
-            <input type="number" id="exit-level" placeholder="0.00" step="0.01" min="0">
+          <div class="q-col-label">Your Answer</div>
+          <div class="q2-inputs">
+            <div class="ff" style="min-width:120px;"><div class="fl">Exit / Stop Price</div><input class="fi" id="q4-exit" type="number" placeholder="195.00" step="0.01" /></div>
           </div>
-          <textarea id="q4-answer" placeholder="Name one specific price level where you're wrong. What's the reason for that level (support breaks, catalyst invalidated, etc.)? What's your plan when it hits — immediate exit or reassess?" rows="4"></textarea>
-          <button class="btn btn-secondary coach-btn" onclick="getCoachResponse(4)" id="q4-coach-btn">Ask Coach →</button>
+          <textarea class="q-textarea" id="q4-answer" placeholder="One specific price that proves your thesis wrong. Why that level? What happens to your position if the stock hits it?" rows="3"></textarea>
         </div>
         <div class="q-right">
-          <div class="col-label">AI Coach</div>
-          <div class="ai-response empty" id="q4-ai">Define your exit level, then ask the coach.</div>
+          <div class="q-col-label">AI Coach</div>
+          <div class="coach-panel" id="coach-q4"><div class="coach-empty">Enter your exit level and reasoning, then analyze.</div></div>
+          <button class="get-btn" onclick="window.TJ.analyzeQ(4)" style="margin-top:8px;">ANALYZE</button>
         </div>
       </div>
     </div>
 
-    <!-- Actions Bar -->
-    <div class="actions-bar">
-      <span class="save-status" id="save-status">Unsaved</span>
-      <button class="btn btn-secondary" onclick="saveToJournal()" id="save-btn">Save to Journal</button>
+  </div><!-- /builder -->
+
+  <!-- JOURNAL TAB -->
+  <div class="tab-content" id="tab-content-journal">
+    <div class="stats-row">
+      <div class="stat-tile"><div class="stat-label">Total Trades</div><div class="stat-val" id="stat-total">0</div></div>
+      <div class="stat-tile"><div class="stat-label">Win Rate</div><div class="stat-val" id="stat-winrate">&#8212;</div></div>
+      <div class="stat-tile"><div class="stat-label">Total P&amp;L</div><div class="stat-val" id="stat-pl">$0</div></div>
+      <div class="stat-tile"><div class="stat-label">Avg Score</div><div class="stat-val" id="stat-avgscore">&#8212;</div></div>
     </div>
+    <div id="journal-list"></div>
+  </div>
 
-  </div><!-- /view-builder -->
+</div><!-- /main -->
 
-
-  <!-- ═══════════════════════════════════════════════════════
-       JOURNAL VIEW
-  ═══════════════════════════════════════════════════════ -->
-  <div class="view" id="view-journal">
-    <div class="journal-header">
-      <div>
-        <div class="journal-title">Trade Journal</div>
-        <div class="journal-count" id="journal-count">0 trades</div>
-      </div>
-      <button class="btn btn-primary" onclick="showView('builder')">+ New Trade</button>
-    </div>
-    <div id="journal-content"></div>
-  </div><!-- /view-journal -->
-
-</main>
+<!-- Firebase SDK v10 compat -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
 <script>
-// ═══════════════════════════════════════════════════════════════
-// CONFIG
-// ═══════════════════════════════════════════════════════════════
-const FINNHUB_KEY  = 'd74aqr1r01qno4q12vl0d74aqr1r01qno4q12vlg';
-const TRADIER_KEY  = 'N3CuY5LUJ6UMnI08TZiSpYKHsGAU';
-const TRADIER_BASE = 'https://api.tradier.com/v1';
-const LS_KEY       = 'tradejournal_v1_entries'; // TradeBrief-compatible namespace
+// ══════════════════════════════════════════════════════════════════
+//  TRADEJOURNAL v1.2
+//  Namespace  : window.TJ
+//  Storage    : Firebase Firestore (tradejournal/brian2026) + localStorage fallback
+//  LS prefix  : tj_
+//  Contract   : getEntries(), getEntry(id), createEntry(obj)
+//  postMessage: { type:'TJ_CREATE_ENTRY', payload:tradeObj }
+// ══════════════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════════
-// STATE
-// ═══════════════════════════════════════════════════════════════
-let state = {
-  atr14: null,
-  currentPrice: null,
-  scores: { 1: null, 2: null, 3: null, 4: null },
-  editingId: null
-};
+window.TJ = (function(){
 
-// ═══════════════════════════════════════════════════════════════
-// VIEW SWITCHING
-// ═══════════════════════════════════════════════════════════════
-function showView(name) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('view-' + name).classList.add('active');
-  document.getElementById('nav-' + name).classList.add('active');
-  if (name === 'journal') renderJournal();
-}
+  // ── ENDPOINTS ─────────────────────────────────────────────────
+  // Tradier: production endpoint confirmed
+  const TRADIER     = 'https://api.tradier.com/v1';
+  const TRADIER_KEY = 'N3CuY5LUJ6UMnI08TZiSpYKHsGAU';
+  const TRADIER_HDR = { 'Authorization': 'Bearer ' + TRADIER_KEY, 'Accept': 'application/json' };
+  const FINNHUB_KEY = 'd74aqr1r01qno4q12vl0d74aqr1r01qno4q12vlg';
+  const FH          = 'https://finnhub.io/api/v1';
+  const LS_PREFIX   = 'tj_';
 
-// ═══════════════════════════════════════════════════════════════
-// INIT
-// ═══════════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  // Set today's date
-  const today = new Date().toISOString().split('T')[0];
-  document.getElementById('trade-date').value = today;
-});
+  // ── FIREBASE ───────────────────────────────────────────────────
+  const FB_CONFIG = {
+    apiKey:            'AIzaSyAp8mEeeX9K2popJQWmGxfRhHTx9SJFUFA',
+    authDomain:        'tradebrief-a2395.firebaseapp.com',
+    projectId:         'tradebrief-a2395',
+    storageBucket:     'tradebrief-a2395.firebasestorage.app',
+    messagingSenderId: '208621464684',
+    appId:             '1:208621464684:web:470ab710391bae3200bc49',
+    measurementId:     'G-WB4KG5Q34Y'
+  };
+  const FB_COLLECTION = 'tradejournal';
+  const FB_DOC_ID     = 'brian2026';
 
-function onTickerChange() {
-  // Reset ATR display when ticker changes
-  state.atr14 = null;
-  state.currentPrice = null;
-  document.getElementById('q2-atr-display').innerHTML =
-    '<div style="color:var(--text-dim);font-size:12px;font-style:italic;">ATR will calculate after Fetch Data ↑</div>';
-  document.getElementById('q2-math').style.display = 'none';
-  document.getElementById('q1-news').innerHTML =
-    '<div style="color:var(--text-dim);font-size:12px;font-style:italic;">Headlines will appear after Fetch Data ↑</div>';
-}
+  let db      = null;
+  let fbReady = false;
 
-// ═══════════════════════════════════════════════════════════════
-// FETCH DATA (Finnhub + Tradier)
-// ═══════════════════════════════════════════════════════════════
-async function fetchAll() {
-  const ticker = document.getElementById('ticker').value.trim().toUpperCase();
-  if (!ticker) {
-    setFetchStatus('Enter a ticker first.', 'var(--red)');
-    return;
-  }
-
-  const btn = document.getElementById('fetch-btn');
-  btn.disabled = true;
-  btn.textContent = 'Fetching...';
-  setFetchStatus('Contacting Finnhub + Tradier...', 'var(--text-dim)');
-
-  try {
-    await Promise.all([fetchNews(ticker), fetchATR(ticker)]);
-    setFetchStatus('Data loaded. ✓', 'var(--accent)');
-  } catch (e) {
-    setFetchStatus('Partial error — check console.', 'var(--accent2)');
-    console.error(e);
-  }
-
-  btn.disabled = false;
-  btn.textContent = 'Fetch Data';
-}
-
-function setFetchStatus(msg, color) {
-  const el = document.getElementById('fetch-status');
-  el.textContent = msg;
-  el.style.color = color || 'var(--text-dim)';
-}
-
-// ── FINNHUB NEWS ─────────────────────────────────────────────
-async function fetchNews(ticker) {
-  const to   = new Date().toISOString().split('T')[0];
-  const from = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
-  const url  = `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${from}&to=${to}&token=${FINNHUB_KEY}`;
-
-  const res  = await fetch(url);
-  const data = await res.json();
-
-  const container = document.getElementById('q1-news');
-
-  if (!data || data.length === 0) {
-    container.innerHTML = '<div style="color:var(--text-dim);font-size:12px;font-style:italic;">No recent news found.</div>';
-    return;
-  }
-
-  // Show top 5 headlines
-  const items = data.slice(0, 5);
-  container.innerHTML = items.map(item => {
-    const dt = new Date(item.datetime * 1000);
-    const ago = timeAgo(dt);
-    return `<div class="news-item">
-      <span>${escHtml(item.headline)}</span>
-      <a href="${escHtml(item.url)}" target="_blank" rel="noopener">→ ${escHtml(item.source)}</a>
-      <span class="news-time">${ago}</span>
-    </div>`;
-  }).join('');
-}
-
-// ── TRADIER ATR ──────────────────────────────────────────────
-async function fetchATR(ticker) {
-  // Get 30 daily candles to compute ATR(14)
-  const end   = new Date().toISOString().split('T')[0];
-  const start = new Date(Date.now() - 45 * 86400000).toISOString().split('T')[0];
-
-  const url = `${TRADIER_BASE}/markets/history?symbol=${ticker}&interval=daily&start=${start}&end=${end}`;
-
-  const res  = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${TRADIER_KEY}`,
-      'Accept': 'application/json'
-    }
-  });
-  const data = await res.json();
-
-  const days = data?.history?.day;
-  if (!days || days.length < 15) {
-    document.getElementById('q2-atr-display').innerHTML =
-      '<div style="color:var(--red);font-size:12px;">Could not load price data for ATR.</div>';
-    return;
-  }
-
-  // Calculate ATR(14) using Wilder's smoothing
-  const candles = Array.isArray(days) ? days : [days];
-  const atr14 = calcATR14(candles);
-  state.atr14 = atr14;
-  state.currentPrice = parseFloat(candles[candles.length - 1].close);
-
-  const pct = ((atr14 / state.currentPrice) * 100).toFixed(2);
-
-  document.getElementById('q2-atr-display').innerHTML = `
-    <div class="atr-stat">
-      <div class="atr-stat-label">ATR (14)</div>
-      <div class="atr-stat-value">$${atr14.toFixed(2)}</div>
-    </div>
-    <div class="atr-stat">
-      <div class="atr-stat-label">Last Close</div>
-      <div class="atr-stat-value">$${state.currentPrice.toFixed(2)}</div>
-    </div>
-    <div class="atr-stat">
-      <div class="atr-stat-label">ATR %</div>
-      <div class="atr-stat-value">${pct}%</div>
-    </div>
-  `;
-
-  calcATRMath();
-}
-
-function calcATR14(candles) {
-  const trueRanges = [];
-  for (let i = 1; i < candles.length; i++) {
-    const high  = parseFloat(candles[i].high);
-    const low   = parseFloat(candles[i].low);
-    const prevC = parseFloat(candles[i - 1].close);
-    const tr = Math.max(high - low, Math.abs(high - prevC), Math.abs(low - prevC));
-    trueRanges.push(tr);
-  }
-
-  // First ATR = simple average of first 14
-  let atr = trueRanges.slice(0, 14).reduce((s, v) => s + v, 0) / 14;
-
-  // Wilder smoothing for remaining
-  for (let i = 14; i < trueRanges.length; i++) {
-    atr = (atr * 13 + trueRanges[i]) / 14;
-  }
-
-  return atr;
-}
-
-function calcATRMath() {
-  const mathEl = document.getElementById('q2-math');
-  const breakeven = parseFloat(document.getElementById('breakeven').value);
-  const expiration = document.getElementById('expiration').value;
-  const tradeDate  = document.getElementById('trade-date').value;
-
-  if (!state.atr14 || !breakeven || breakeven <= 0) {
-    mathEl.style.display = 'none';
-    return;
-  }
-
-  const daysNeeded = (breakeven / state.atr14).toFixed(1);
-
-  let dte = '?';
-  let verdict = '';
-  let cssClass = '';
-
-  if (expiration && tradeDate) {
-    const exp = new Date(expiration + 'T12:00:00');
-    const now = new Date(tradeDate + 'T12:00:00');
-    dte = Math.max(0, Math.round((exp - now) / 86400000));
-
-    const ratio = parseFloat(daysNeeded) / dte;
-    if (ratio <= 0.4) {
-      verdict = '✓ MATH WORKS — Move needed is well within DTE.';
-      cssClass = 'good';
-    } else if (ratio <= 0.7) {
-      verdict = '⚠ TIGHT — Move is achievable but needs to happen soon.';
-      cssClass = '';
-    } else {
-      verdict = '✗ MATH FAILS — Days needed exceeds or crowds your DTE.';
-      cssClass = 'warning';
+  function initFirebase(){
+    try {
+      const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(FB_CONFIG);
+      db = firebase.firestore(app);
+      fbReady = true;
+    } catch(e){
+      console.warn('TJ: Firebase init failed, localStorage only.', e);
     }
   }
 
-  mathEl.style.display = 'block';
-  mathEl.className = 'atr-math' + (cssClass ? ' ' + cssClass : '');
-  mathEl.innerHTML = `
-    $${breakeven.toFixed(2)} breakeven ÷ $${state.atr14.toFixed(2)} ATR = <strong>${daysNeeded} days</strong> of avg movement needed
-    ${dte !== '?' ? ` &nbsp;|&nbsp; DTE: <strong>${dte}</strong>` : ''}
-    ${verdict ? `<br><span style="font-size:11px;margin-top:4px;display:block;">${verdict}</span>` : ''}
-  `;
-}
+  // ── STATE ──────────────────────────────────────────────────────
+  let currentTicker = '';
+  let atrData       = null;
+  let scores        = { q1:0, q2:0, q3:0, q4:0 };
+  let entries       = [];
+  let closeTarget   = null;
+  let closeOutcome  = null;
+  let expandedId    = null;
 
-// ═══════════════════════════════════════════════════════════════
-// AI COACH
-// ═══════════════════════════════════════════════════════════════
-async function getCoachResponse(qNum) {
-  const answer = document.getElementById(`q${qNum}-answer`).value.trim();
-  if (!answer && qNum !== 2) {
-    alert('Write your answer first before asking the coach.');
-    return;
+  // ── CANONICAL TRADE SCHEMA ─────────────────────────────────────
+  // This is the shared contract between TJ, TradeBrief, and TradeSheet.
+  // All keys are always present; nulls for unfilled values.
+  function makeEntry(overrides){
+    return Object.assign({
+      id:         Date.now(),
+      ticker:     '',
+      type:       'call',
+      strike:     '',
+      exp:        '',
+      entry:      '',
+      date:       new Date().toISOString().split('T')[0],
+      status:     'open',
+      outcome:    null,
+      pl:         null,
+      scores:     { q1:0, q2:0, q3:0, q4:0 },
+      q1ans:      '',
+      q2ans:      '',
+      q3ans:      '',
+      q4ans:      '',
+      exitPrice:  '',
+      closedDate: null,
+      closeNotes: null,
+      _coachText: { q1:'', q2:'', q3:'', q4:'' },
+      _atr:       null
+    }, overrides);
   }
 
-  const aiEl = document.getElementById(`q${qNum}-ai`);
-  aiEl.className = 'ai-response loading';
-  aiEl.innerHTML = '<div class="spinner"></div><span>Coach is reviewing...</span>';
+  // ── INIT ───────────────────────────────────────────────────────
+  function init(){
+    initFirebase();
+    loadLocal();
+    tickClock();
+    setInterval(tickClock, 1000);
+    applyTheme();
+    const d = new Date(); d.setDate(d.getDate()+21);
+    const expEl = document.getElementById('b-exp');
+    if(expEl) expEl.value = d.toISOString().split('T')[0];
+    window.addEventListener('message', onMessage);
+  }
 
-  const context = buildContext(qNum, answer);
+  function tickClock(){
+    const n = new Date(), h = n.getHours(), m = String(n.getMinutes()).padStart(2,'0');
+    document.getElementById('clock').textContent = (h%12||12)+':'+m+' '+(h>=12?'PM':'ET');
+  }
 
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        system: COACH_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: context }]
-      })
+  // ── THEME ──────────────────────────────────────────────────────
+  function applyTheme(){
+    document.body.classList.toggle('light', (localStorage.getItem(LS_PREFIX+'theme')||'dark')==='light');
+  }
+  function toggleTheme(){
+    localStorage.setItem(LS_PREFIX+'theme', document.body.classList.contains('light')?'dark':'light');
+    applyTheme();
+  }
+
+  // ── TABS ───────────────────────────────────────────────────────
+  function go(tab){
+    ['builder','journal'].forEach(t=>{
+      document.getElementById('tab-content-'+t).classList.toggle('active',t===tab);
+      document.getElementById('tab-'+t).classList.toggle('active',t===tab);
     });
-
-    const data = await response.json();
-    const text = data.content.map(b => b.text || '').join('');
-    const parsed = parseCoachResponse(text, qNum);
-
-    state.scores[qNum] = parsed.score;
-    renderCoachResponse(qNum, parsed);
-
-  } catch (err) {
-    aiEl.className = 'ai-response loaded';
-    aiEl.innerHTML = `<span style="color:var(--red);font-size:12px;">Error reaching coach: ${err.message}</span>`;
+    if(tab==='journal') renderJournal();
   }
-}
 
-const COACH_SYSTEM_PROMPT = `You are a rigorous trading coach reviewing a trader's pre-trade thesis. Your job is to push toward a professional standard — not to be encouraging, but to be honest.
+  // ── TOAST ──────────────────────────────────────────────────────
+  function toast(msg){
+    const el=document.getElementById('toast');
+    el.textContent=msg; el.classList.add('show');
+    setTimeout(()=>el.classList.remove('show'),2500);
+  }
 
-You will receive a trader's answer to one of four pre-trade questions. Evaluate it strictly.
+  // ── SYNC STATUS ────────────────────────────────────────────────
+  function setSyncStatus(cls,label){
+    const b=document.getElementById('sync-btn');
+    b.className='sync-btn '+(cls||'');
+    b.textContent=label||'\u21C5 SYNC';
+  }
 
-SCORING RUBRIC:
-- 5: Complete, specific, sourced. Professional standard.
-- 4: Mostly there. Minor gap.
-- 3: Adequate but missing something important.
-- 2: Vague or incomplete. Needs work.
-- 1: Not acceptable. Rewrite required.
-
-Always respond in this exact format:
-SCORE: [1-5]
-VERDICT: [one sentence — pass or fail with the specific reason]
-ANALYSIS: [2-4 sentences — what's strong, what's weak, what would make this a 5]
-CHALLENGE: [one sharp question or pushback the trader must be able to answer]
-
-Be direct. Don't soften bad scores. If the math doesn't work, say so. If Q4 doesn't have a specific number, call it out.`;
-
-function buildContext(qNum, answer) {
-  const ticker   = document.getElementById('ticker').value.trim().toUpperCase() || '[No ticker]';
-  const expiry   = document.getElementById('expiration').value || '[No expiry]';
-  const strike   = document.getElementById('strike').value || '[No strike]';
-  const contract = document.getElementById('contract-type').value;
-  const entry    = document.getElementById('entry-price').value || '[No entry]';
-
-  const tradeInfo = `Ticker: ${ticker} | Contract: ${contract} $${strike} exp ${expiry} | Entry: $${entry}`;
-
-  const qTitles = {
-    1: 'Why is this moving? (Name a specific catalyst with a source)',
-    2: 'What has to be true for this to work? (ATR math — breakeven ÷ ATR = days needed)',
-    3: 'Am I early or am I chasing? (Position in the move)',
-    4: 'What would prove me wrong, and what\'s my exit? (One specific price level)'
-  };
-
-  let contextBody = `Trade: ${tradeInfo}\n\nQuestion: ${qTitles[qNum]}\n\nTrader's answer: ${answer || '[No answer provided]'}`;
-
-  // For Q2, include the ATR math
-  if (qNum === 2 && state.atr14) {
-    const breakeven = parseFloat(document.getElementById('breakeven').value) || null;
-    const expiration = document.getElementById('expiration').value;
-    const tradeDate  = document.getElementById('trade-date').value;
-    let dte = 'unknown';
-    if (expiration && tradeDate) {
-      const exp = new Date(expiration + 'T12:00:00');
-      const now = new Date(tradeDate + 'T12:00:00');
-      dte = Math.max(0, Math.round((exp - now) / 86400000));
+  // ── FIREBASE SYNC ──────────────────────────────────────────────
+  async function syncNow(){
+    if(!fbReady){ toast('Firebase unavailable \u2014 using local storage'); return; }
+    setSyncStatus('syncing','\u21C5 SYNCING\u2026');
+    try {
+      const ref  = db.collection(FB_COLLECTION).doc(FB_DOC_ID);
+      const snap = await ref.get();
+      const cloudEntries = snap.exists ? (snap.data().entries||[]) : [];
+      const localIds = new Set(entries.map(e=>e.id));
+      const merged = [...entries];
+      cloudEntries.forEach(ce=>{ if(!localIds.has(ce.id)) merged.push(ce); });
+      merged.sort((a,b)=>b.id-a.id);
+      entries = merged;
+      await ref.set({ entries, updatedAt: new Date().toISOString() });
+      persistLocal();
+      setSyncStatus('synced','\u2713 SYNCED');
+      setTimeout(()=>setSyncStatus('','\u21C5 SYNC'),3000);
+      if(document.getElementById('tab-content-journal').classList.contains('active')) renderJournal();
+      toast('Synced with Firebase');
+    } catch(e){
+      setSyncStatus('error','\u2715 ERROR');
+      setTimeout(()=>setSyncStatus('','\u21C5 SYNC'),4000);
+      console.error('TJ sync error:',e);
+      toast('Sync failed \u2014 data saved locally');
     }
-    const daysNeeded = breakeven ? (breakeven / state.atr14).toFixed(1) : 'not calculated';
-    contextBody += `\n\nATR DATA: ATR(14) = $${state.atr14.toFixed(2)}, Last close = $${state.currentPrice?.toFixed(2) || '?'}, Breakeven = $${breakeven || '?'}, Days needed = ${daysNeeded}, DTE = ${dte}`;
   }
 
-  // For Q4, include the exit level
-  if (qNum === 4) {
-    const exitLevel = document.getElementById('exit-level').value;
-    if (exitLevel) contextBody += `\n\nExit level specified: $${exitLevel}`;
-    else contextBody += '\n\nNote: No specific exit price level was entered in the exit field.';
+  // ── STORAGE ────────────────────────────────────────────────────
+  function loadLocal(){
+    try { entries = JSON.parse(localStorage.getItem(LS_PREFIX+'entries')||'[]'); } catch(e){ entries=[]; }
+  }
+  function persistLocal(){
+    localStorage.setItem(LS_PREFIX+'entries', JSON.stringify(entries));
+  }
+  async function persistEntries(){
+    persistLocal();
+    if(!fbReady||!db) return;
+    try { await db.collection(FB_COLLECTION).doc(FB_DOC_ID).set({ entries, updatedAt:new Date().toISOString() }); }
+    catch(e){ console.warn('TJ: background Firebase write failed',e); }
   }
 
-  return contextBody;
-}
+  // ── TICKER LOAD ────────────────────────────────────────────────
+  function loadTicker(){
+    const t=document.getElementById('b-ticker').value.trim().toUpperCase();
+    if(!t){ toast('Enter a ticker first'); return; }
+    currentTicker=t; atrData=null; scores={q1:0,q2:0,q3:0,q4:0};
+    [1,2,3,4].forEach(n=>{
+      document.getElementById('coach-q'+n).innerHTML='<div class="coach-empty">Enter your answer and click Analyze.</div>';
+      setScore(n,0);
+      document.getElementById('q'+n+'-answer').value='';
+    });
+    document.getElementById('q2-breakeven').value='';
+    document.getElementById('q4-exit').value='';
+    document.getElementById('news-list').style.display='none';
+    document.getElementById('atr-tiles').style.display='none';
+    document.getElementById('atr-math-box').innerHTML='';
+    updateDTE(); updateThesisBar();
+    toast(t+' loaded \u2014 fetch news & ATR');
+  }
 
-function parseCoachResponse(text, qNum) {
-  const scoreMatch   = text.match(/SCORE:\s*([1-5])/i);
-  const verdictMatch = text.match(/VERDICT:\s*(.+?)(?:\n|ANALYSIS:)/is);
-  const analysisMatch= text.match(/ANALYSIS:\s*(.+?)(?:\n\n|CHALLENGE:|$)/is);
-  const challengeMatch = text.match(/CHALLENGE:\s*(.+?)$/is);
+  function updateDTE(){
+    const v=document.getElementById('b-exp').value;
+    if(!v) return;
+    document.getElementById('q2-dte').value=Math.max(0,Math.ceil((new Date(v+'T00:00:00')-new Date())/86400000));
+  }
 
+  // ── FETCH NEWS ─────────────────────────────────────────────────
+  async function fetchNews(){
+    if(!currentTicker){ toast('Load a ticker first'); return; }
+    const btn=document.getElementById('news-btn');
+    btn.textContent='LOADING\u2026'; btn.disabled=true;
+    try {
+      const to=new Date().toISOString().split('T')[0];
+      const from=new Date(Date.now()-7*86400000).toISOString().split('T')[0];
+      const res=await fetch(FH+'/company-news?symbol='+currentTicker+'&from='+from+'&to='+to+'&token='+FINNHUB_KEY);
+      const data=await res.json();
+      const list=document.getElementById('news-list');
+      if(!data||!data.length){
+        list.innerHTML='<div class="coach-empty">No recent news found.</div>';
+      } else {
+        list.innerHTML=data.slice(0,5).map(item=>{
+          const h=(item.headline||'').replace(/'/g,'&#39;');
+          return '<div class="news-item" onclick="window.TJ.useHeadline(\''+h+'\')">'+
+            (item.headline||'')+'<div class="news-src">'+(item.source||'')+' \u2014 click to use</div></div>';
+        }).join('');
+      }
+      list.style.display='block';
+      toast('News loaded');
+    } catch(e){ toast('News fetch failed'); }
+    btn.textContent='FETCH NEWS'; btn.disabled=false;
+  }
+
+  function useHeadline(h){
+    const ta=document.getElementById('q1-answer');
+    ta.value=ta.value?ta.value+'\n\nHeadline: '+h:'Headline: '+h+'\n\nCatalyst: ';
+    ta.focus(); toast('Headline added \u2014 complete your analysis');
+  }
+
+  // ── FETCH ATR — Tradier production (api.tradier.com) ──────────
+  async function fetchATR(){
+    if(!currentTicker){ toast('Load a ticker first'); return; }
+    const btn=document.getElementById('atr-btn');
+    btn.textContent='LOADING\u2026'; btn.disabled=true;
+    try {
+      const end=new Date().toISOString().split('T')[0];
+      const start=new Date(Date.now()-60*86400000).toISOString().split('T')[0];
+      const res=await fetch(TRADIER+'/markets/history?symbol='+currentTicker+'&interval=daily&start='+start+'&end='+end,{headers:TRADIER_HDR});
+      const data=await res.json();
+      const hist=data&&data.history&&data.history.day;
+      if(!hist||!Array.isArray(hist)||hist.length<14){ toast('Not enough candle data'); btn.textContent='GET ATR'; btn.disabled=false; return; }
+      const trs=[];
+      for(let i=1;i<hist.length;i++){
+        const H=parseFloat(hist[i].high),L=parseFloat(hist[i].low),C=parseFloat(hist[i-1].close);
+        trs.push(Math.max(H-L,Math.abs(H-C),Math.abs(L-C)));
+      }
+      const atr14=trs.slice(-14).reduce((a,b)=>a+b,0)/14;
+      const price=parseFloat(hist[hist.length-1].close);
+      atrData={atr14,currentPrice:price,ticker:currentTicker};
+      document.getElementById('atr-data-tiles').innerHTML=
+        '<div class="atile"><div class="atile-label">Price</div><div class="atile-val">$'+price.toFixed(2)+'</div></div>'+
+        '<div class="atile"><div class="atile-label">14D ATR</div><div class="atile-val">$'+atr14.toFixed(2)+'</div></div>'+
+        '<div class="atile"><div class="atile-label">ATR %</div><div class="atile-val">'+((atr14/price)*100).toFixed(1)+'%</div></div>';
+      document.getElementById('atr-tiles').style.display='block';
+      recalcATR(); updateDTE();
+      toast('ATR loaded \u2014 $'+atr14.toFixed(2)+'/day');
+    } catch(e){ toast('ATR fetch failed'); console.error(e); }
+    btn.textContent='GET ATR'; btn.disabled=false;
+  }
+
+  function recalcATR(){
+    if(!atrData) return;
+    const be=parseFloat(document.getElementById('q2-breakeven').value);
+    const dte=parseInt(document.getElementById('q2-dte').value)||0;
+    if(!be){ document.getElementById('atr-math-box').innerHTML=''; return; }
+    const mov=Math.abs(be-atrData.currentPrice);
+    const days=mov/atrData.atr14;
+    const ratio=dte>0?days/dte:null;
+    let cls='ok',lbl='REALISTIC';
+    if(ratio!==null){ if(ratio>0.8){cls='bad';lbl='TIGHT';} else if(ratio>0.5){cls='warn';lbl='POSSIBLE';} }
+    document.getElementById('atr-math-box').innerHTML=
+      '<div class="atr-math-row"><span class="atr-math-label">Move needed</span><span class="atr-math-val">$'+mov.toFixed(2)+'</span></div>'+
+      '<div class="atr-math-row"><span class="atr-math-label">\u00F7 ATR/day</span><span class="atr-math-val">$'+atrData.atr14.toFixed(2)+'</span></div>'+
+      '<div class="atr-math-row"><span class="atr-math-label">Days needed</span><span class="atr-math-val">'+days.toFixed(1)+'</span></div>'+
+      '<div class="atr-math-row"><span class="atr-math-label">DTE available</span><span class="atr-math-val">'+dte+'</span></div>'+
+      '<div class="atr-math-row"><span class="atr-math-label">VERDICT</span><span class="atr-math-val '+cls+'">'+lbl+' ('+days.toFixed(1)+'/'+dte+' days)</span></div>';
+  }
+
+  // ── AI COACH ───────────────────────────────────────────────────
+  function buildCtx(){
+    return (document.getElementById('b-ticker').value||currentTicker||'Unknown')+' '+
+      document.getElementById('b-type').value.toUpperCase()+' $'+
+      document.getElementById('b-strike').value+' exp '+
+      document.getElementById('b-exp').value+' | Entry: $'+
+      (document.getElementById('b-entry').value||'?')+'/contract';
+  }
+
+  function buildPrompt(n){
+    const ctx=buildCtx();
+    const ans=document.getElementById('q'+n+'-answer').value.trim();
+    if(n===1) return 'You are a professional options trading coach. Be direct and critical, not a cheerleader.\nContext: '+ctx+'\nQ: "Why is this moving?"\nAnswer: "'+ans+'"\nStandard: Specific catalyst + named source. Vague language fails.\nRespond in exactly 3 parts:\nVALIDATE: What is solid?\nCHALLENGE: What is missing?\nSCORE: 1-5. Format: "SCORE: X/5"';
+    if(n===2){
+      const atrCtx=atrData?'Current price $'+atrData.currentPrice.toFixed(2)+', 14D ATR $'+atrData.atr14.toFixed(2):'No ATR loaded.';
+      return 'You are a professional options trading coach.\nContext: '+ctx+'\n'+atrCtx+'\nQ: "What has to be true for this to work?"\nAnswer: "'+ans+'"\nStandard: Must show ATR math (breakeven \u00F7 ATR = days). No math = fails.\nVALIDATE: Is math present?\nCHALLENGE: Is timeline realistic?\nSCORE: 1-5. Format: "SCORE: X/5"';
+    }
+    if(n===3) return 'You are a professional options trading coach.\nContext: '+ctx+'\nQ: "Am I early or chasing?"\nAnswer: "'+ans+'"\nStandard: Specific level or % of move cited. "Looks early" fails.\nVALIDATE: What is specific?\nCHALLENGE: What is missing?\nSCORE: 1-5. Format: "SCORE: X/5"';
+    if(n===4){
+      const ep=document.getElementById('q4-exit').value;
+      return 'You are a professional options trading coach.\nContext: '+ctx+'\nExit price: '+(ep||'NOT PROVIDED')+'\nQ: "What would prove me wrong?"\nAnswer: "'+ans+'"\nStandard: One specific price + reason before entry.\nVALIDATE: Is level specific?\nCHALLENGE: Is it defensible?\nSCORE: 1-5. Format: "SCORE: X/5"';
+    }
+    return '';
+  }
+
+  async function analyzeQ(n){
+    const ans=document.getElementById('q'+n+'-answer').value.trim();
+    if(!ans){ toast('Enter your Q'+n+' answer first'); return; }
+    const panel=document.getElementById('coach-q'+n);
+    panel.innerHTML='<div class="coach-loading"><div class="coach-dot"></div><div class="coach-dot"></div><div class="coach-dot"></div><span>Analyzing\u2026</span></div>';
+    try {
+      const res=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:buildPrompt(n)}]})
+      });
+      const data=await res.json();
+      const text=(data.content&&data.content.find(b=>b.type==='text')&&data.content.find(b=>b.type==='text').text)||'No response.';
+      const sm=text.match(/SCORE:\s*(\d)/i);
+      setScore(n,sm?parseInt(sm[1]):0);
+      panel.innerHTML='<div class="coach-text">'+text
+        .replace(/VALIDATE:/gi,'<br><span class="valid">\u25B6 VALIDATE:</span>')
+        .replace(/CHALLENGE:/gi,'<br><span class="challenge">\u25B6 CHALLENGE:</span>')
+        .replace(/SCORE:/gi,'<br><strong>\u25B6 SCORE:</strong>')+'</div>';
+      updateThesisBar();
+    } catch(e){
+      panel.innerHTML='<div class="coach-empty">Analysis failed \u2014 check connection.</div>';
+    }
+  }
+
+  async function analyzeAll(){ for(let n=1;n<=4;n++) await analyzeQ(n); }
+
+  // ── SCORING ────────────────────────────────────────────────────
+  function setScore(n,val){
+    scores['q'+n]=val;
+    const el=document.getElementById('score-q'+n); if(!el) return;
+    el.textContent=val?val+'/5':'\u2014/5';
+    el.className='score-badge '+(!val?'blank':val>=5?'s5':val>=4?'s4':val>=3?'s3':val>=2?'s2':'s1');
+    const pip=document.getElementById('pip-q'+n);
+    if(pip) pip.className='thesis-pip'+(val>=3?' filled q'+n:'');
+  }
+
+  function updateThesisBar(){
+    const total=scores.q1+scores.q2+scores.q3+scores.q4;
+    const el=document.getElementById('thesis-total');
+    if(!total){el.textContent='\u2014';el.style.color='var(--muted)';return;}
+    el.textContent=total+'/20';
+    el.style.color=total>=16?'var(--good)':total>=10?'var(--accent)':'var(--warning)';
+  }
+
+  // ── SAVE ENTRY ─────────────────────────────────────────────────
+  function saveEntry(){
+    const ticker=document.getElementById('b-ticker').value.trim().toUpperCase();
+    if(!ticker){ toast('No ticker loaded'); return; }
+    const q1ans=document.getElementById('q1-answer').value;
+    const q2ans=document.getElementById('q2-answer').value;
+    const q3ans=document.getElementById('q3-answer').value;
+    const q4ans=document.getElementById('q4-answer').value;
+    if(!q1ans&&!q2ans&&!q3ans&&!q4ans){ toast('Answer at least one question before saving'); return; }
+    const record=makeEntry({
+      ticker, type:document.getElementById('b-type').value,
+      strike:document.getElementById('b-strike').value, exp:document.getElementById('b-exp').value,
+      entry:document.getElementById('b-entry').value, scores:{...scores},
+      q1ans, q2ans, q3ans, q4ans, exitPrice:document.getElementById('q4-exit').value,
+      _coachText:{
+        q1:document.getElementById('coach-q1').innerHTML, q2:document.getElementById('coach-q2').innerHTML,
+        q3:document.getElementById('coach-q3').innerHTML, q4:document.getElementById('coach-q4').innerHTML
+      },
+      _atr:atrData?{atr14:atrData.atr14,currentPrice:atrData.currentPrice}:null
+    });
+    entries.unshift(record);
+    persistEntries();
+    toast(ticker+' trade saved');
+    setTimeout(()=>go('journal'),600);
+  }
+
+  // ── JOURNAL RENDER ─────────────────────────────────────────────
+  function renderJournal(){
+    updateStats();
+    const el=document.getElementById('journal-list');
+    if(!entries.length){ el.innerHTML='<div class="empty">No trades yet \u2014 build a thesis in the Builder tab.</div>'; return; }
+    el.innerHTML=entries.map(renderJCard).join('');
+  }
+
+  function renderJCard(e){
+    const total=e.scores?(e.scores.q1+e.scores.q2+e.scores.q3+e.scores.q4):0;
+    const sc=e.status==='open'?'open':e.outcome==='win'?'closed-win':e.outcome==='expired'?'expired':'closed-loss';
+    const sl=e.status==='open'?'OPEN':e.outcome==='win'?'WIN':e.outcome==='expired'?'EXPIRED':'LOSS';
+    const cc=e.status==='open'?'open':e.outcome==='win'?'closed win':e.outcome==='expired'?'expired':'closed loss';
+    const pl=e.pl!==null?'<span class="j-pl '+(e.pl>=0?'pos':'neg')+'">'+(e.pl>=0?'+':'')+'$'+e.pl+'</span>':'';
+    const open=expandedId===e.id;
+    return '<div class="journal-card '+cc+'" id="jcard-'+e.id+'">'+
+      '<div class="jcard-top" onclick="window.TJ.toggleCard('+e.id+')">'+
+        '<div class="jcard-left">'+
+          '<span class="j-ticker">'+e.ticker+'</span>'+
+          '<span class="j-type '+(e.type==='call'?'call':'put')+'">'+e.type.toUpperCase()+'</span>'+
+          '<span class="j-meta">$'+e.strike+' \u2022 '+e.exp+' \u2022 entered $'+(e.entry||'?')+'</span>'+
+        '</div>'+
+        '<div class="jcard-right">'+pl+'<span class="j-status '+sc+'">'+sl+'</span></div>'+
+      '</div>'+
+      '<div class="jcard-detail '+(open?'open':'')+'" id="jdetail-'+e.id+'">'+
+        '<div class="j-scores-row">'+
+          '<div class="j-q-mini">Q1 <span>'+(e.scores&&e.scores.q1||'\u2014')+'/5</span></div>'+
+          '<div class="j-q-mini">Q2 <span>'+(e.scores&&e.scores.q2||'\u2014')+'/5</span></div>'+
+          '<div class="j-q-mini">Q3 <span>'+(e.scores&&e.scores.q3||'\u2014')+'/5</span></div>'+
+          '<div class="j-q-mini">Q4 <span>'+(e.scores&&e.scores.q4||'\u2014')+'/5</span></div>'+
+          '<div class="j-q-mini">TOTAL <span>'+(total||'\u2014')+'/20</span></div>'+
+        '</div>'+
+        (e.q1ans?'<div style="margin-bottom:8px;"><div class="q-col-label" style="margin-bottom:3px;">Q1 \u2014 Catalyst</div><div style="font-size:12px;color:var(--text);line-height:1.5;">'+e.q1ans+'</div></div>':'')+
+        (e.q2ans?'<div style="margin-bottom:8px;"><div class="q-col-label" style="margin-bottom:3px;">Q2 \u2014 ATR Math</div><div style="font-size:12px;color:var(--text);line-height:1.5;">'+e.q2ans+'</div></div>':'')+
+        (e.q3ans?'<div style="margin-bottom:8px;"><div class="q-col-label" style="margin-bottom:3px;">Q3 \u2014 Position in Move</div><div style="font-size:12px;color:var(--text);line-height:1.5;">'+e.q3ans+'</div></div>':'')+
+        (e.q4ans?'<div style="margin-bottom:8px;"><div class="q-col-label" style="margin-bottom:3px;">Q4 \u2014 Exit Thesis</div><div style="font-size:12px;color:var(--text);line-height:1.5;">'+e.q4ans+(e.exitPrice?' <strong>Exit: $'+e.exitPrice+'</strong>':'')+' </div></div>':'')+
+        (e.closeNotes?'<div class="alert" style="margin-top:6px;">Close notes: '+e.closeNotes+'</div>':'')+
+        '<div class="jcard-actions">'+
+          (e.status==='open'?'<button class="sel-btn" onclick="window.TJ.openCloseModal('+e.id+')">CLOSE TRADE</button>':'')+
+          '<button class="danger-btn" onclick="window.TJ.deleteEntry('+e.id+')">DELETE</button>'+
+        '</div>'+
+      '</div></div>';
+  }
+
+  function toggleCard(id){ expandedId=expandedId===id?null:id; renderJournal(); }
+
+  // ── STATS ──────────────────────────────────────────────────────
+  function updateStats(){
+    const total=entries.length;
+    const closed=entries.filter(e=>e.status==='closed');
+    const wins=entries.filter(e=>e.outcome==='win').length;
+    const wr=closed.length?Math.round(wins/closed.length*100):null;
+    const pl=entries.reduce((s,e)=>s+(e.pl||0),0);
+    const sc=entries.filter(e=>e.scores&&(e.scores.q1+e.scores.q2+e.scores.q3+e.scores.q4)>0);
+    const avg=sc.length?(sc.reduce((s,e)=>s+e.scores.q1+e.scores.q2+e.scores.q3+e.scores.q4,0)/sc.length).toFixed(1):null;
+    document.getElementById('stat-total').textContent=total;
+    document.getElementById('stat-winrate').textContent=wr!==null?wr+'%':'\u2014';
+    const plEl=document.getElementById('stat-pl');
+    plEl.textContent=(pl>=0?'+':'')+'$'+pl;
+    plEl.className='stat-val '+(pl>0?'pos':pl<0?'neg':'');
+    document.getElementById('stat-avgscore').textContent=avg||'\u2014';
+  }
+
+  // ── CLOSE MODAL ────────────────────────────────────────────────
+  function openCloseModal(id){
+    closeTarget=id; closeOutcome=null;
+    document.getElementById('modal-pl').value='';
+    document.getElementById('modal-notes').value='';
+    ['ob-win','ob-loss','ob-expired'].forEach(b=>document.getElementById(b).className='outcome-btn');
+    document.getElementById('close-modal').style.display='flex';
+  }
+  function closeModal(){
+    document.getElementById('close-modal').style.display='none';
+    closeTarget=null; closeOutcome=null;
+  }
+  function selectOutcome(o){
+    closeOutcome=o;
+    ['win','loss','expired'].forEach(x=>document.getElementById('ob-'+x).className='outcome-btn'+(x===o?' selected '+o:''));
+  }
+  function confirmClose(){
+    if(!closeOutcome){ toast('Select an outcome'); return; }
+    const pl=parseFloat(document.getElementById('modal-pl').value)||0;
+    const notes=document.getElementById('modal-notes').value;
+    const idx=entries.findIndex(e=>e.id===closeTarget);
+    if(idx===-1){ toast('Trade not found'); return; }
+    entries[idx].status=closeOutcome==='expired'?'expired':'closed';
+    entries[idx].outcome=closeOutcome; entries[idx].pl=pl;
+    entries[idx].closeNotes=notes; entries[idx].closedDate=new Date().toISOString().split('T')[0];
+    persistEntries(); closeModal(); renderJournal();
+    toast('Trade closed \u2014 '+closeOutcome.toUpperCase());
+  }
+
+  function deleteEntry(id){
+    if(!confirm('Delete this trade entry?')) return;
+    entries=entries.filter(e=>e.id!==id);
+    if(expandedId===id) expandedId=null;
+    persistEntries(); renderJournal(); toast('Entry deleted');
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  //  INTEGRATION API — TradeBrief / TradeSheet contract
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * getEntries() → Array
+   * Returns the full entries array (all trades, all statuses).
+   * TradeBrief calls this to pull open trades into its Trades tab.
+   */
+  function getEntries(){ return entries; }
+
+  /**
+   * getEntry(id) → Object | undefined
+   * Returns a single entry by numeric id.
+   * TradeBrief calls this to deep-link from a specific trade card.
+   */
+  function getEntry(id){ return entries.find(function(e){ return e.id===id; }); }
+
+  /**
+   * createEntry(tradeObj) → void
+   * Pre-populates the Builder tab and switches to it.
+   * TradeBrief calls this when Brian taps "Open Journal" from a trade card.
+   * Accepted keys: ticker, type, strike, exp, entry
+   */
+  function createEntry(obj){
+    if(!obj) return;
+    var t=(obj.ticker||'').toUpperCase();
+    if(t) document.getElementById('b-ticker').value=t;
+    if(obj.type)   document.getElementById('b-type').value=obj.type;
+    if(obj.strike) document.getElementById('b-strike').value=obj.strike;
+    if(obj.exp)    document.getElementById('b-exp').value=obj.exp;
+    if(obj.entry)  document.getElementById('b-entry').value=obj.entry;
+    currentTicker=t||currentTicker;
+    updateDTE();
+    go('builder');
+    toast('Builder pre-filled for '+(t||'trade'));
+  }
+
+  // ── postMessage BRIDGE ─────────────────────────────────────────
+  // Enables iframe embedding without direct namespace access.
+  // Parent sends:    { type: 'TJ_CREATE_ENTRY', payload: tradeObj }
+  // TJ signals back: { type: 'TJ_READY', version: '1.2' }
+  function onMessage(event){
+    if(!event.data||typeof event.data!=='object') return;
+    if(event.data.type==='TJ_CREATE_ENTRY') createEntry(event.data.payload||{});
+  }
+
+  // ── PUBLIC API ─────────────────────────────────────────────────
   return {
-    score:     scoreMatch    ? parseInt(scoreMatch[1]) : null,
-    verdict:   verdictMatch  ? verdictMatch[1].trim()  : '',
-    analysis:  analysisMatch ? analysisMatch[1].trim() : text,
-    challenge: challengeMatch ? challengeMatch[1].trim() : ''
-  };
-}
-
-function renderCoachResponse(qNum, parsed) {
-  const aiEl = document.getElementById(`q${qNum}-ai`);
-  const scoreDisplay = document.getElementById(`q${qNum}-score-display`);
-  const dotsEl = document.getElementById(`q${qNum}-dots`);
-
-  aiEl.className = 'ai-response loaded';
-
-  let scoreClass = 'score-3';
-  let dotClass   = '';
-  if (parsed.score >= 4) { scoreClass = parsed.score === 5 ? 'score-5' : 'score-4'; dotClass = ''; }
-  else if (parsed.score === 3) { scoreClass = 'score-3'; dotClass = 'mid'; }
-  else { scoreClass = parsed.score === 2 ? 'score-2' : 'score-1'; dotClass = 'low'; }
-
-  // Render score dots
-  if (parsed.score) {
-    scoreDisplay.style.display = 'flex';
-    dotsEl.innerHTML = Array.from({ length: 5 }, (_, i) =>
-      `<div class="score-dot ${i < parsed.score ? 'filled ' + dotClass : ''}"></div>`
-    ).join('');
-  }
-
-  aiEl.innerHTML = `
-    ${parsed.score ? `<div class="ai-score-badge ${scoreClass}">SCORE ${parsed.score}/5</div>` : ''}
-    ${parsed.verdict ? `<div style="font-weight:500;color:var(--text-bright);margin-bottom:8px;">${escHtml(parsed.verdict)}</div>` : ''}
-    ${parsed.analysis ? `<div style="margin-bottom:10px;font-size:12px;line-height:1.7;">${escHtml(parsed.analysis)}</div>` : ''}
-    ${parsed.challenge ? `<div style="background:var(--accent2-dim);border:1px solid var(--accent2);border-radius:var(--radius);padding:8px 10px;font-size:12px;color:var(--accent2);">⚡ ${escHtml(parsed.challenge)}</div>` : ''}
-  `;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// JOURNAL PERSISTENCE
-// ═══════════════════════════════════════════════════════════════
-function loadEntries() {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); }
-  catch { return []; }
-}
-
-function saveEntries(entries) {
-  localStorage.setItem(LS_KEY, JSON.stringify(entries));
-}
-
-function saveToJournal() {
-  const ticker = document.getElementById('ticker').value.trim().toUpperCase();
-  if (!ticker) { alert('Enter a ticker before saving.'); return; }
-
-  const entry = {
-    id:           state.editingId || Date.now().toString(),
-    ticker,
-    date:         document.getElementById('trade-date').value,
-    entryPrice:   document.getElementById('entry-price').value,
-    strike:       document.getElementById('strike').value,
-    contractType: document.getElementById('contract-type').value,
-    expiration:   document.getElementById('expiration').value,
-    q1Answer:     document.getElementById('q1-answer').value,
-    q1AI:         document.getElementById('q1-ai').innerText,
-    q2Answer:     document.getElementById('q2-answer').value,
-    q2AI:         document.getElementById('q2-ai').innerText,
-    q3Answer:     document.getElementById('q3-answer').value,
-    q3AI:         document.getElementById('q3-ai').innerText,
-    q4Answer:     document.getElementById('q4-answer').value,
-    q4AI:         document.getElementById('q4-ai').innerText,
-    exitLevel:    document.getElementById('exit-level').value,
-    breakeven:    document.getElementById('breakeven').value,
-    atr14:        state.atr14,
-    scores:       { ...state.scores },
-    avgScore:     avgScore(),
-    status:       'Open',
-    pnl:          '',
-    savedAt:      new Date().toISOString()
+    // Core
+    init, go, toast, toggleTheme, syncNow,
+    // Builder
+    loadTicker, updateDTE, fetchNews, useHeadline,
+    fetchATR, recalcATR,
+    analyzeQ, analyzeAll, saveEntry,
+    // Journal
+    renderJournal, toggleCard,
+    openCloseModal, closeModal, selectOutcome, confirmClose,
+    deleteEntry,
+    // Integration contract
+    getEntries,
+    getEntry,
+    createEntry
   };
 
-  const entries = loadEntries();
-  const idx = entries.findIndex(e => e.id === entry.id);
-  if (idx >= 0) entries[idx] = entry;
-  else entries.unshift(entry);
+})();
 
-  saveEntries(entries);
-
-  const statusEl = document.getElementById('save-status');
-  statusEl.textContent = `Saved ✓ — ${ticker} @ ${entry.date}`;
-  statusEl.className = 'save-status saved';
-  state.editingId = entry.id;
-}
-
-function avgScore() {
-  const vals = Object.values(state.scores).filter(v => v !== null);
-  if (!vals.length) return null;
-  return (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1);
-}
-
-function clearBuilder() {
-  if (!confirm('Clear all fields and start fresh?')) return;
-  ['ticker','entry-price','strike','expiration','breakeven','exit-level',
-   'q1-answer','q2-answer','q3-answer','q4-answer'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  document.getElementById('trade-date').value = new Date().toISOString().split('T')[0];
-  document.getElementById('contract-type').value = 'CALL';
-  [1,2,3,4].forEach(n => {
-    document.getElementById(`q${n}-ai`).className = 'ai-response empty';
-    document.getElementById(`q${n}-ai`).innerHTML = '...';
-    document.getElementById(`q${n}-score-display`).style.display = 'none';
-  });
-  document.getElementById('q1-ai').innerHTML = 'Answer Q1, then ask the coach.';
-  document.getElementById('q2-ai').innerHTML = 'Complete Q2 math, then ask the coach.';
-  document.getElementById('q3-ai').innerHTML = 'Describe your entry timing, then ask the coach.';
-  document.getElementById('q4-ai').innerHTML = 'Define your exit level, then ask the coach.';
-  document.getElementById('q2-math').style.display = 'none';
-  document.getElementById('q2-atr-display').innerHTML =
-    '<div style="color:var(--text-dim);font-size:12px;font-style:italic;">ATR will calculate after Fetch Data ↑</div>';
-  document.getElementById('q1-news').innerHTML =
-    '<div style="color:var(--text-dim);font-size:12px;font-style:italic;">Headlines will appear after Fetch Data ↑</div>';
-  state = { atr14: null, currentPrice: null, scores: {1:null,2:null,3:null,4:null}, editingId: null };
-  const statusEl = document.getElementById('save-status');
-  statusEl.textContent = 'Unsaved';
-  statusEl.className = 'save-status';
-  setFetchStatus('Enter a ticker and click Fetch Data', '');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// JOURNAL RENDER
-// ═══════════════════════════════════════════════════════════════
-function renderJournal() {
-  const entries = loadEntries();
-  const container = document.getElementById('journal-content');
-  const countEl   = document.getElementById('journal-count');
-
-  countEl.textContent = `${entries.length} trade${entries.length !== 1 ? 's' : ''}`;
-
-  if (entries.length === 0) {
-    container.innerHTML = `
-      <div class="journal-empty">
-        <div class="empty-icon">📋</div>
-        <div>No trades logged yet.</div>
-        <div style="margin-top:6px;font-size:12px;">Build your thesis in the Builder, then save it here.</div>
-      </div>`;
-    return;
-  }
-
-  container.innerHTML = `
-    <table class="journal-table">
-      <thead>
-        <tr>
-          <th>Ticker</th>
-          <th>Contract</th>
-          <th>Date</th>
-          <th>Avg Score</th>
-          <th>Status</th>
-          <th>P&amp;L</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="journal-tbody"></tbody>
-    </table>`;
-
-  const tbody = document.getElementById('journal-tbody');
-
-  entries.forEach(entry => {
-    const tr = document.createElement('tr');
-    tr.id = `row-${entry.id}`;
-
-    const scoreColor = !entry.avgScore ? 'var(--text-dim)'
-      : entry.avgScore >= 4 ? 'var(--accent)'
-      : entry.avgScore >= 3 ? 'var(--accent2)'
-      : 'var(--red)';
-
-    const pnlNum = parseFloat(entry.pnl);
-    const pnlClass = !entry.pnl ? 'pnl-neutral' : pnlNum > 0 ? 'pnl-pos' : 'pnl-neg';
-    const pnlDisplay = !entry.pnl ? '—' : (pnlNum > 0 ? '+' : '') + '$' + Math.abs(pnlNum).toFixed(0);
-
-    tr.innerHTML = `
-      <td><div class="ticker-cell">${escHtml(entry.ticker)}</div></td>
-      <td>
-        <div class="contract-cell">${escHtml(entry.contractType)} $${escHtml(entry.strike || '?')}</div>
-        <div class="contract-cell" style="margin-top:2px;">exp ${escHtml(entry.expiration || '?')}</div>
-      </td>
-      <td style="font-family:var(--mono);font-size:12px;color:var(--text-dim);">${escHtml(entry.date || '?')}</td>
-      <td class="avg-score-cell" style="color:${scoreColor};">${entry.avgScore ? entry.avgScore + '/5' : '—'}</td>
-      <td>
-        <select class="status-select" onchange="updateStatus('${entry.id}', this.value)">
-          <option value="Open" ${entry.status === 'Open' ? 'selected' : ''}>Open</option>
-          <option value="Closed" ${entry.status === 'Closed' ? 'selected' : ''}>Closed</option>
-          <option value="Expired" ${entry.status === 'Expired' ? 'selected' : ''}>Expired</option>
-        </select>
-      </td>
-      <td>
-        <input class="pnl-input" type="number" value="${entry.pnl || ''}"
-               placeholder="P&L $"
-               onchange="updatePNL('${entry.id}', this.value)"
-               step="1">
-      </td>
-      <td>
-        <div class="row-actions">
-          <button class="icon-btn" onclick="toggleExpand('${entry.id}')">View</button>
-          <button class="icon-btn del" onclick="deleteEntry('${entry.id}')">Del</button>
-        </div>
-      </td>`;
-    tbody.appendChild(tr);
-  });
-}
-
-function toggleExpand(id) {
-  const existingExpand = document.getElementById(`expand-${id}`);
-  if (existingExpand) { existingExpand.remove(); return; }
-
-  const entries = loadEntries();
-  const entry   = entries.find(e => e.id === id);
-  if (!entry) return;
-
-  const row = document.getElementById(`row-${id}`);
-  const expandRow = document.createElement('tr');
-  expandRow.id = `expand-${id}`;
-  expandRow.className = 'expand-row';
-
-  expandRow.innerHTML = `
-    <td colspan="7">
-      <div class="thesis-preview">
-        <div class="thesis-q">
-          <div class="thesis-q-label">Q1 — Catalyst</div>
-          <div class="thesis-q-text">${escHtml(entry.q1Answer || '—')}</div>
-        </div>
-        <div class="thesis-q">
-          <div class="thesis-q-label">Q2 — ATR Math</div>
-          <div class="thesis-q-text">${escHtml(entry.q2Answer || '—')}${entry.atr14 ? `<br><span style="color:var(--text-dim);font-size:11px;margin-top:4px;display:block;">ATR: $${parseFloat(entry.atr14).toFixed(2)} | BE: $${entry.breakeven || '?'}</span>` : ''}</div>
-        </div>
-        <div class="thesis-q">
-          <div class="thesis-q-label">Q3 — Position in Move</div>
-          <div class="thesis-q-text">${escHtml(entry.q3Answer || '—')}</div>
-        </div>
-        <div class="thesis-q">
-          <div class="thesis-q-label">Q4 — Exit Level</div>
-          <div class="thesis-q-text">${escHtml(entry.q4Answer || '—')}${entry.exitLevel ? `<br><span style="color:var(--accent);font-family:var(--mono);font-size:11px;">Exit: $${entry.exitLevel}</span>` : ''}</div>
-        </div>
-      </div>
-    </td>`;
-
-  row.after(expandRow);
-}
-
-function updateStatus(id, status) {
-  const entries = loadEntries();
-  const entry   = entries.find(e => e.id === id);
-  if (entry) { entry.status = status; saveEntries(entries); }
-}
-
-function updatePNL(id, pnl) {
-  const entries = loadEntries();
-  const entry   = entries.find(e => e.id === id);
-  if (entry) { entry.pnl = pnl; saveEntries(entries); renderJournal(); }
-}
-
-function deleteEntry(id) {
-  if (!confirm('Delete this trade entry? This cannot be undone.')) return;
-  const entries = loadEntries().filter(e => e.id !== id);
-  saveEntries(entries);
-  renderJournal();
-}
-
-// ═══════════════════════════════════════════════════════════════
-// UTILITIES
-// ═══════════════════════════════════════════════════════════════
-function escHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function timeAgo(date) {
-  const secs = Math.floor((Date.now() - date) / 1000);
-  if (secs < 3600)  return `${Math.floor(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-  return `${Math.floor(secs / 86400)}d ago`;
-}
+// Boot
+window.TJ.init();
+// Signal to any parent frame
+try{ window.parent.postMessage({ type:'TJ_READY', version:'1.2' },'*'); }catch(e){}
 </script>
 
-<!-- ============================================================
-     TRADEJOURNAL v1.0 — Foundation Build
-     Date: 2026-04-08
-     Four-question thesis builder | AI coach | Finnhub + Tradier
-     localStorage journal | Two-column layout per question
-     ============================================================ -->
+<!-- ╔══════════════════════════════════════════════════════════════╗
+     ║  END TRADEJOURNAL v1.2 — Integration-Ready Build             ║
+     ╚══════════════════════════════════════════════════════════════╝ -->
 </body>
 </html>
